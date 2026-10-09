@@ -56,6 +56,8 @@ final class AppModel {
         let files = FileManager.default
         try? files.createDirectory(at: folders.inbox, withIntermediateDirectories: true)
         try? files.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
+        // Puts back the inbox if something else changed the screenshot location meanwhile.
+        if captureOn { ScreenshotSettings.capturing(into: folders.inbox).write() }
         history = History.decode(try? Data(contentsOf: folders.historyFile))
         for item in history.removeExpired(now: .now) { removeThumbnail(item) }
         saveHistory()
