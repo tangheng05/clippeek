@@ -11,7 +11,7 @@ struct SettingsView: View {
 
     init(model: AppModel, token: String? = nil) {
         self.model = model
-        _token = State(initialValue: token ?? Keychain.token() ?? "")
+        _token = State(initialValue: token ?? model.token ?? "")
     }
 
     var body: some View {

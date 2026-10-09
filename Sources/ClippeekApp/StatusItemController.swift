@@ -110,7 +110,10 @@ final class StatusItemController {
         hosting.rootView = HistoryView(model: model, visible: visible,
                                        openSettings: { [weak self] in self?.openSettings() },
                                        close: { [weak self] in self?.popover.performClose(nil) },
-                                       onResize: { [weak self] in self?.resizePopover(height: $0) })
+                                       // Resizing inside SwiftUI's layout pass makes AppKit lay out re-entrantly.
+                                       onResize: { [weak self] height in
+                                           DispatchQueue.main.async { self?.resizePopover(height: height) }
+                                       })
     }
 
     /// An accessory app doesn't hear clicks in other apps, so `.transient` alone misses them.

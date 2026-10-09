@@ -48,6 +48,8 @@ final class AppModel {
     @ObservationIgnored private var tokenRejected = false
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var retry: Task<Void, Never>?
+    /// Read once: each Keychain read can ask for the login password after an app update.
+    @ObservationIgnored private(set) var token: String?
 
     init(folders: Folders = .standard) {
         self.folders = folders
@@ -62,6 +64,7 @@ final class AppModel {
         let files = FileManager.default
         try? files.createDirectory(at: folders.inbox, withIntermediateDirectories: true)
         try? files.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
+        token = Keychain.token()
         // Puts back the inbox if something else changed the screenshot location meanwhile.
         if captureOn { ScreenshotSettings.capturing(into: folders.inbox).write() }
         history = History.decode(try? Data(contentsOf: folders.historyFile))
@@ -95,7 +98,7 @@ final class AppModel {
     // MARK: Uploads
 
     private var client: ZiplineClient? {
-        guard let server = ZiplineServer(serverText), let token = Keychain.token() else { return nil }
+        guard let server = ZiplineServer(serverText), let token else { return nil }
         return ZiplineClient(server: server, token: token)
     }
 
@@ -216,6 +219,7 @@ final class AppModel {
 
     func saveToken(_ token: String) {
         Keychain.setToken(token)
+        self.token = token.isEmpty ? nil : token
         tokenRejected = false
         problem = nil
         uploadNext()
