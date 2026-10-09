@@ -31,7 +31,7 @@ final class StatusItemController {
             }
         }
         observe()
-        if model.serverText.isEmpty || !model.captureOn {
+        if model.serverText.isEmpty || model.token == nil || !model.captureOn {
             DispatchQueue.main.async { self.openSettings() }
         }
     }

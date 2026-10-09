@@ -66,8 +66,8 @@ struct HistoryView: View {
                    text: "Screenshots are saved as usual, not sent to clippeek.") {
                 Button("Turn On") { model.setCapture(true) }
             }
-        } else if model.serverText.isEmpty {
-            Notice(symbol: "server.rack", tint: .secondary, text: "Add your Zipline server to start uploading.") {
+        } else if ZiplineServer(model.serverText) == nil || model.token == nil {
+            Notice(symbol: "server.rack", tint: .orange, text: "Add your Zipline server and token to start uploading.") {
                 Button("Settings…", action: openSettings)
             }
         }

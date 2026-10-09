@@ -49,7 +49,7 @@ final class AppModel {
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var retry: Task<Void, Never>?
     /// Read once: each Keychain read can ask for the login password after an app update.
-    @ObservationIgnored private(set) var token: String?
+    private(set) var token: String?
 
     init(folders: Folders = .standard) {
         self.folders = folders
