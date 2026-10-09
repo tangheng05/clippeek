@@ -1,0 +1,7 @@
+.build/
+build/
+.swiftpm/
+.DS_Store
+CLAUDE.md
+ROADMAP.md
+docs/superpowers/
