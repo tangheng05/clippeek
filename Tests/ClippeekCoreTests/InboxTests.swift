@@ -13,6 +13,11 @@ import UniformTypeIdentifiers
         #expect(!Inbox.isScreenshot(".DS_Store"))
     }
 
+    /// The name macOS 27 writes to before renaming, seen in the inbox.
+    @Test func ignoresTemporaryFile() {
+        #expect(!Inbox.isScreenshot("..Screenshot 2026-10-09 at 6.29.36 PM.png-hOKjYG"))
+    }
+
     @Test func newScreenshotsSkipHandled() {
         let listing = ["b.png", ".tmp.png", "a.png", "c.png"]
         #expect(Inbox.newScreenshots(in: listing, handled: ["c.png"]) == ["a.png", "b.png"])
