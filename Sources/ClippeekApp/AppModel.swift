@@ -113,12 +113,21 @@ final class AppModel {
             let result = try await client.upload(data, filename: name, expiry: expiry)
             finish(name: name, file: file, data: data, result: result)
             attempt = 0
+            problem = nil
         } catch ZiplineError.unauthorized {
             pending[name] = .waiting
             tokenRejected = true
             problem = "Zipline rejected the token. Check it in Settings."
         } catch ZiplineError.tooLarge {
             pending[name] = .failed("Too large for the server")
+        } catch ZiplineError.server(let status) {
+            pending[name] = .waiting
+            problem = "Zipline returned an error (\(status)). Retrying."
+            scheduleRetry()
+        } catch ZiplineError.badResponse {
+            pending[name] = .waiting
+            problem = "The server didn't answer like Zipline. Check the address in Settings."
+            scheduleRetry()
         } catch {
             pending[name] = .waiting
             scheduleRetry()
@@ -229,7 +238,7 @@ final class AppModel {
     func dismissProblem() {
         tokenRejected = false
         problem = nil
-        uploadNext()
+        networkReturned()
     }
 
     private func saveHistory() {
