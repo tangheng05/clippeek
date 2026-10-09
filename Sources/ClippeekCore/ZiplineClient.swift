@@ -20,7 +20,10 @@ public struct ZiplineClient: Sendable {
 
     public func delete(id: String) async throws {
         let (_, response) = try await session.data(for: Zipline.deleteRequest(server: server, token: token, id: id))
-        try Zipline.check((response as? HTTPURLResponse)?.statusCode ?? 0)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        // Already gone, e.g. expired or deleted in Zipline's web UI.
+        if status == 404 { return }
+        try Zipline.check(status)
     }
 
     public func checkConnection() async throws {

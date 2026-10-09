@@ -46,6 +46,15 @@ import Testing
         #expect(result.deletesAt == ISO8601DateFormatter().date(from: "2026-10-16T10:00:00Z"))
     }
 
+    /// Recorded from Zipline 4.8.0 with `X-Zipline-Deletes-At: 7d`.
+    @Test func parsesRealV4Response() throws {
+        let json = #"{"files":[{"id":"ivverrflcb953uilzalbqgjb","name":"kqChKl.png","type":"image/png","url":"http://localhost:3000/u/kqChKl.png"}],"deletesAt":"2026-10-16T11:20:33.555Z"}"#
+        let result = try Zipline.parseUpload(status: 200, data: Data(json.utf8))
+        #expect(result.id == "ivverrflcb953uilzalbqgjb")
+        #expect(result.url.absoluteString == "http://localhost:3000/u/kqChKl.png")
+        #expect(result.deletesAt == Date(timeIntervalSince1970: 1_792_149_633.555))
+    }
+
     @Test func neverExpires() throws {
         let json = #"{"files":[{"id":"a","name":"a.png","type":"image/png","url":"https://z.io/u/a.png"}],"deletesAt":"never"}"#
         #expect(try Zipline.parseUpload(status: 200, data: Data(json.utf8)).deletesAt == nil)

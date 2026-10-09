@@ -36,6 +36,12 @@ final class StubProtocol: URLProtocol {
         #expect(StubProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization") == "secret")
     }
 
+    @Test func deletingAMissingFileSucceeds() async throws {
+        StubProtocol.handler = { _ in (404, Data(#"{"error":"E4000: File not found","code":4000,"statusCode":404}"#.utf8)) }
+        try await client.delete(id: "gone")
+        #expect(StubProtocol.lastRequest?.httpMethod == "DELETE")
+    }
+
     @Test func badTokenThrows() async {
         StubProtocol.handler = { _ in (401, Data()) }
         await #expect(throws: ZiplineError.unauthorized) {
