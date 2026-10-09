@@ -7,6 +7,11 @@ enum PendingState: Equatable {
     case waiting, uploading, failed(String)
 }
 
+struct ConnectionStatus: Equatable {
+    let ok: Bool
+    let message: String
+}
+
 struct Folders {
     let inbox: URL
     let thumbnails: URL
@@ -33,7 +38,7 @@ final class AppModel {
     var copyLinkAfterUpload: Bool { didSet { UserDefaults.standard.set(copyLinkAfterUpload, forKey: "copyLink") } }
     private(set) var captureOn: Bool
 
-    let folders = Folders.standard
+    let folders: Folders
     @ObservationIgnored private var watcher: InboxWatcher?
     @ObservationIgnored private let path = NWPathMonitor()
     @ObservationIgnored private var uploading = false
@@ -44,7 +49,8 @@ final class AppModel {
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var retry: Task<Void, Never>?
 
-    init() {
+    init(folders: Folders = .standard) {
+        self.folders = folders
         let defaults = UserDefaults.standard
         serverText = defaults.string(forKey: "server") ?? ""
         expiry = Expiry(rawValue: defaults.string(forKey: "expiry") ?? "") ?? .never
@@ -59,8 +65,7 @@ final class AppModel {
         // Puts back the inbox if something else changed the screenshot location meanwhile.
         if captureOn { ScreenshotSettings.capturing(into: folders.inbox).write() }
         history = History.decode(try? Data(contentsOf: folders.historyFile))
-        for item in history.removeExpired(now: .now) { removeThumbnail(item) }
-        saveHistory()
+        removeExpired()
         watcher = InboxWatcher(folder: folders.inbox) { [weak self] in self?.scan() }
         path.pathUpdateHandler = { [weak self] update in
             guard update.status == .satisfied else { return }
@@ -173,12 +178,23 @@ final class AppModel {
 
     // MARK: History actions
 
-    func copyImage(_ item: HistoryItem) async {
-        guard let (data, _) = try? await URLSession.shared.data(from: item.url) else {
-            problem = "Couldn't download that screenshot."
-            return
+    /// Expired items are gone from Zipline, so they leave the history too.
+    func removeExpired() {
+        let expired = history.removeExpired(now: .now)
+        guard !expired.isEmpty else { return }
+        for item in expired { removeThumbnail(item) }
+        saveHistory()
+    }
+
+    @discardableResult
+    func copyImage(_ item: HistoryItem) async -> Bool {
+        guard let (data, response) = try? await URLSession.shared.data(from: item.url),
+              (response as? HTTPURLResponse)?.statusCode == 200 else {
+            problem = "Couldn't download that screenshot from Zipline."
+            return false
         }
         Clipboard.put(image: data)
+        return true
     }
 
     func copyLink(_ item: HistoryItem) {
@@ -205,19 +221,21 @@ final class AppModel {
         uploadNext()
     }
 
-    /// Returns a short message for the Settings window.
-    func testConnection() async -> String {
-        guard let client else { return "Enter the server address and token first." }
+    func testConnection() async -> ConnectionStatus {
+        guard ZiplineServer(serverText) != nil else { return ConnectionStatus(ok: false, message: "Enter the server address.") }
+        guard let client else { return ConnectionStatus(ok: false, message: "Paste your Zipline token.") }
         do {
             try await client.checkConnection()
             tokenRejected = false
             problem = nil
             uploadNext()
-            return "Connected."
+            return ConnectionStatus(ok: true, message: "Connected")
         } catch ZiplineError.unauthorized {
-            return "The server rejected the token."
+            return ConnectionStatus(ok: false, message: "The server rejected the token.")
+        } catch ZiplineError.server(let status) {
+            return ConnectionStatus(ok: false, message: "The server answered with an error (\(status)).")
         } catch {
-            return "Couldn't reach the server."
+            return ConnectionStatus(ok: false, message: "Couldn't reach the server.")
         }
     }
 
@@ -251,3 +269,35 @@ final class AppModel {
         try? FileManager.default.removeItem(at: folders.thumbnails.appending(path: item.thumbnail))
     }
 }
+
+#if DEBUG
+extension AppModel {
+    /// Fake state for `--snapshots`; thumbnails go into this model's own folders.
+    func loadSample(items count: Int, waiting: Int = 0, problem: String? = nil, captureOn: Bool = true) {
+        try? FileManager.default.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
+        let colors: [NSColor] = [.systemBlue, .systemTeal, .systemIndigo, .systemOrange, .systemPink, .systemGreen]
+        var history = History()
+        for index in (0..<count).reversed() {
+            let name = "sample-\(index).png"
+            let size = NSSize(width: index % 3 == 0 ? 180 : 320, height: index % 4 == 0 ? 320 : 200)
+            let image = NSImage(size: size, flipped: false) { rect in
+                colors[index % colors.count].setFill()
+                rect.fill()
+                NSColor.white.withAlphaComponent(0.7).setFill()
+                NSRect(x: 16, y: rect.height - 40, width: rect.width * 0.6, height: 14).fill()
+                return true
+            }
+            if let tiff = image.tiffRepresentation,
+               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                try? png.write(to: folders.thumbnails.appending(path: name))
+            }
+            history.add(HistoryItem(id: "\(index)", url: URL(string: "https://zip.example.com/u/\(index).png")!,
+                                    created: .now.addingTimeInterval(Double(-index * 900)), deletesAt: nil, thumbnail: name))
+        }
+        self.history = history
+        pending = Dictionary(uniqueKeysWithValues: (0..<waiting).map { ("Screenshot \($0).png", PendingState.waiting) })
+        self.problem = problem
+        self.captureOn = captureOn
+    }
+}
+#endif
