@@ -75,7 +75,8 @@ final class StatusItemController {
     }
 
     private func render() {
-        let taken = !hotKey.register(model.shortcut)
+        // Off while recording, or the current combination couldn't be recorded again.
+        let taken = !hotKey.register(model.recordingShortcut ? nil : model.shortcut)
         // Only write on change; every write re-triggers this observation.
         if model.shortcutTaken != taken { model.shortcutTaken = taken }
         guard let button = item.button else { return }

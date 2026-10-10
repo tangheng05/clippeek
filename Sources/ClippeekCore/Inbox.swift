@@ -7,7 +7,7 @@ public enum CaptureKind: String, Codable, CodingKeyRepresentable, Sendable, Case
 public enum Inbox {
     private static let types: [String: (kind: CaptureKind, mime: String)] = [
         "png": (.screenshot, "image/png"), "jpg": (.screenshot, "image/jpeg"), "jpeg": (.screenshot, "image/jpeg"),
-        "heic": (.screenshot, "image/heic"), "tiff": (.screenshot, "image/tiff"),
+        "heic": (.screenshot, "image/heic"), "tiff": (.screenshot, "image/tiff"), "webp": (.screenshot, "image/webp"),
         "pdf": (.screenshot, "application/pdf"), "gif": (.screenshot, "image/gif"), "bmp": (.screenshot, "image/bmp"),
         "mov": (.video, "video/quicktime"), "mp4": (.video, "video/mp4"),
     ]
@@ -36,6 +36,11 @@ public enum Inbox {
     /// Files left from before launch still upload, but only fresh ones replace the clipboard.
     public static func isRecent(created: Date, now: Date) -> Bool {
         now.timeIntervalSince(created) < 15
+    }
+
+    /// Zipline re-encodes these well; GIFs would lose their animation and PDFs aren't images.
+    public static func isCompressible(_ name: String) -> Bool {
+        ["png", "jpg", "jpeg"].contains((name as NSString).pathExtension.lowercased())
     }
 
     public static func mimeType(for name: String) -> String {

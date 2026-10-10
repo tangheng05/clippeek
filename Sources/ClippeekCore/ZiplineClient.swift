@@ -30,8 +30,8 @@ public struct ZiplineClient: Sendable {
         let name = file.lastPathComponent
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard Inbox.kind(of: name) == .video || size > PartialUpload.chunkSize else {
-            let image = Inbox.kind(of: name) == .screenshot
-            return try await upload(try Data(contentsOf: file), filename: name, expiry: expiry, compression: image ? compression : nil)
+            return try await upload(try Data(contentsOf: file), filename: name, expiry: expiry,
+                                    compression: Inbox.isCompressible(name) ? compression : nil)
         }
         let result = try await uploadFile(at: file, filename: name, expiry: expiry, progress: progress)
         if await waitUntilStored(filename: result.id) == false { throw ZiplineError.notStored }

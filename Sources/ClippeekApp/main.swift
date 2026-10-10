@@ -42,7 +42,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.services = services
         NSApp.servicesProvider = services
-        NSUpdateDynamicServices()
         let statusItem = StatusItemController(model: model)
         self.statusItem = statusItem
         Task {

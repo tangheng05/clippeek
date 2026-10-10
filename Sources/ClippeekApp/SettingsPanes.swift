@@ -89,7 +89,10 @@ private struct KeepCopyRows: View {
         panel.canCreateDirectories = true
         panel.directoryURL = model.keepFolder(for: kind)
         panel.prompt = "Choose"
-        if panel.runModal() == .OK, let folder = panel.url { model.keepFolders[kind] = folder }
+        // The inbox would upload every kept copy again.
+        guard panel.runModal() == .OK, let folder = panel.url,
+              folder.standardizedFileURL.path != model.folders.inbox.standardizedFileURL.path else { return }
+        model.keepFolders[kind] = folder
     }
 }
 
@@ -150,13 +153,13 @@ struct GeneralPane: View {
                     Text("HTML").tag(LinkFormat.html)
                 }
             } footer: {
-                Text("Drop files on the menu bar icon, or right-click them in Finder and choose Services → Upload with clippeek.")
+                Text("Used after each upload and when you click a thumbnail. To upload other files, drop them on the menu bar icon or choose Services → Upload with clippeek in Finder.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Section {
-                LabeledContent("Shortcut to open clippeek") {
+                LabeledContent("Open history shortcut") {
                     ShortcutRecorder(model: model)
                 }
             } footer: {
@@ -207,7 +210,7 @@ struct ScreenshotsPane: View {
                     }
                 }
             } footer: {
-                Text("Zipline stores a smaller copy, so links load faster. Your clipboard and any kept copy stay full quality.")
+                Text("Zipline stores a smaller copy of screenshots and images you drop, so links load faster. Your clipboard and any kept copy stay full quality.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -246,7 +249,7 @@ struct RecordingsPane: View {
                 }
                 .disabled(!model.isCapturing(.video))
             } footer: {
-                Text("Recordings upload when they finish and are removed from this Mac. Zipline allows 100 MB per file by default; raise \"Max file size\" in its settings for longer videos.")
+                Text("Recordings upload when they finish. Unless you keep a copy, they're removed from this Mac. Zipline allows 100 MB per file by default; raise \"Max file size\" in its settings for longer videos.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

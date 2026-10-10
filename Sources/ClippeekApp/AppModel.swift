@@ -58,7 +58,7 @@ final class AppModel {
     }
     var keepScreenshots: Bool { didSet { UserDefaults.standard.set(keepScreenshots, forKey: "keepScreenshots") } }
     var keepVideos: Bool { didSet { UserDefaults.standard.set(keepVideos, forKey: "keepVideos") } }
-    /// Chosen folders for kept copies; nil means where macOS saved that kind before clippeek.
+    /// Chosen folders for kept copies; nil means ~/Pictures/clippeek or ~/Movies/clippeek.
     var keepFolders: [CaptureKind: URL] {
         didSet { UserDefaults.standard.set(keepFolders.mapValues(\.path).reduce(into: [String: String]()) { $0[$1.key.rawValue] = $1.value },
                                            forKey: "keepFolders") }
@@ -74,6 +74,8 @@ final class AppModel {
     }
     var shortcutTaken = false
     var recordingShortcut = false
+    /// 0…1 while a large dropped file uploads.
+    private(set) var sendProgress: Double?
     /// 0…1 while a video uploads.
     private(set) var videoProgress: Double?
     /// When the last upload finished, for the menu bar's check mark.
@@ -155,20 +157,15 @@ final class AppModel {
             Task { @MainActor in self?.pathChanged(current) }
         }
         path.start(queue: .main)
-        DistributedNotificationCenter.default().addObserver(forName: .clippeekUploaded, object: nil, queue: .main) { [weak self] note in
-            let json = note.userInfo?["history"] as? String
-            MainActor.assumeIsolated { self?.addFromCommandLine(json) }
+        DistributedNotificationCenter.default().addObserver(forName: .clippeekUploaded, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadHistory() }
         }
         scan()
     }
 
-    /// `clippeek upload` already wrote the thumbnail; the item just joins the history.
-    private func addFromCommandLine(_ json: String?) {
-        guard let items = json.flatMap({ History.decode(Data($0.utf8)) })?.items, !items.isEmpty else { return }
-        for item in items.reversed() {
-            for dropped in history.add(item) { removeThumbnail(dropped) }
-        }
-        saveHistory()
+    /// `clippeek upload` adds to history.json itself.
+    private func reloadHistory() {
+        history = History.load(from: folders.historyFile)
         lastFinished = .now
     }
 
@@ -292,7 +289,8 @@ final class AppModel {
                     pending[name] = nil
                     return
                 }
-                result = try await client.upload(data, filename: name, expiry: expiry, compression: compression)
+                result = try await client.upload(data, filename: name, expiry: expiry,
+                                                 compression: Inbox.isCompressible(name) ? compression : nil)
                 // Decoding a full-size screenshot on the main thread would hitch the UI.
                 thumbnail = await Task.detached(priority: .utility) { Thumbnail.make(from: data) }.value
             case .video:
@@ -415,27 +413,36 @@ final class AppModel {
     /// Moves an uploaded capture to the user's folder when they keep copies; nil when it isn't kept.
     private func keep(_ file: URL, kind: CaptureKind) -> URL? {
         guard kind == .screenshot ? keepScreenshots : keepVideos else { return nil }
-        let destination = unused(file.lastPathComponent, in: keepFolder(for: kind))
-        try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return (try? FileManager.default.moveItem(at: file, to: destination)) == nil ? nil : destination
+        // A missing or unwritable folder falls back, so a kept file is never deleted instead.
+        for folder in [keepFolder(for: kind), defaultKeepFolder(for: kind), URL.desktopDirectory] {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let destination = unused(file.lastPathComponent, in: folder)
+            if (try? FileManager.default.moveItem(at: file, to: destination)) != nil { return destination }
+        }
+        return file
     }
 
+    /// Defaults to Pictures or Movies, not the Desktop the app keeps clear.
     func keepFolder(for kind: CaptureKind) -> URL {
-        keepFolders[kind] ?? captureState.userFolder(for: kind, current: SystemPreferences.read(CaptureState.allKeys),
-                                                     inbox: folders.inbox, home: FileManager.default.homeDirectoryForCurrentUser)
+        keepFolders[kind] ?? defaultKeepFolder(for: kind)
+    }
+
+    private func defaultKeepFolder(for kind: CaptureKind) -> URL {
+        (kind == .screenshot ? URL.picturesDirectory : URL.moviesDirectory).appending(path: "clippeek")
     }
 
     // MARK: Sending files
 
     /// Files dropped on the icon or picked in Finder; they stay where they are.
     func send(_ files: [URL]) {
-        let files = files.filter { !$0.hasDirectoryPath }
+        let files = files.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
         guard !files.isEmpty else { return }
         guard let client else {
             issue = "Connect your Zipline server in Settings first."
             return
         }
         sending += files.count
+        let mark = NSPasteboard.general.changeCount
         Task {
             var links: [String] = []
             for file in files {
@@ -443,9 +450,9 @@ final class AppModel {
                 do {
                     let result = try await client.send(file, expiry: kind == .video ? expiryVideo : expiry,
                                                        compression: compression) { value in
-                        Task { @MainActor in self.videoProgress = value < 1 ? value : nil }
+                        Task { @MainActor in self.sendProgress = value < 1 ? value : nil }
                     }
-                    videoProgress = nil
+                    sendProgress = nil
                     links.append(linkFormat.text(for: result.url))
                     if let kind {
                         let thumbnail = await Self.thumbnail(of: file, kind: kind)
@@ -453,12 +460,13 @@ final class AppModel {
                     }
                     lastFinished = .now
                 } catch {
-                    videoProgress = nil
+                    sendProgress = nil
                     issue = "Couldn't upload \(file.lastPathComponent): \(CLI.message(for: error))"
                 }
                 sending -= 1
             }
-            if !links.isEmpty { Clipboard.put(text: links.joined(separator: "\n")) }
+            // Not over something the user copied while these were uploading.
+            if !links.isEmpty, NSPasteboard.general.changeCount == mark { Clipboard.put(text: links.joined(separator: "\n")) }
         }
     }
 
@@ -619,7 +627,7 @@ final class AppModel {
     }
 
     private func removeThumbnail(_ item: HistoryItem) {
-        try? FileManager.default.removeItem(at: folders.thumbnails.appending(path: item.thumbnail))
+        try? FileManager.default.removeItem(at: folders.thumbnails.appending(path: URL(fileURLWithPath: item.thumbnail).lastPathComponent))
     }
 }
 

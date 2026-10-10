@@ -6,6 +6,14 @@ import UniformTypeIdentifiers
 @testable import ClippeekCore
 
 @Suite struct InboxTests {
+    @Test func onlyStillImagesAreCompressed() {
+        #expect(Inbox.isCompressible("Screenshot.PNG"))
+        #expect(Inbox.isCompressible("photo.jpeg"))
+        #expect(!Inbox.isCompressible("loop.gif"))
+        #expect(!Inbox.isCompressible("page.pdf"))
+        #expect(Inbox.kind(of: "small.webp") == .screenshot)
+    }
+
     @Test func classifiesByExtension() {
         #expect(Inbox.kind(of: "Screenshot 2026-10-09 at 15.00.00.png") == .screenshot)
         #expect(Inbox.kind(of: "a.JPG") == .screenshot)

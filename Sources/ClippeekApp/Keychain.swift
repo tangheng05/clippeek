@@ -7,7 +7,8 @@ enum Keychain {
 
     /// An item another app owns can't be replaced, so a new token then goes under a new account.
     private static var account: String {
-        get { UserDefaults.standard.string(forKey: "tokenAccount") ?? "zipline" }
+        // Read by domain, since the `clippeek` command runs through a symlink that has no bundle.
+        get { CFPreferencesCopyAppValue("tokenAccount" as CFString, CLI.bundleID as CFString) as? String ?? "zipline" }
         set { UserDefaults.standard.set(newValue, forKey: "tokenAccount") }
     }
 

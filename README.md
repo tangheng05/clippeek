@@ -56,9 +56,9 @@ From then on, take screenshots and recordings exactly as you always have.
 
 ## How it works
 
-**Screenshots.** Press ⇧⌘3, ⇧⌘4 or ⇧⌘5 as usual. The image is on your clipboard immediately, ready to paste, while clippeek uploads it to Zipline and removes the file from your Mac.
+**Screenshots.** Press ⇧⌘3, ⇧⌘4 or ⇧⌘5 as usual. The image is on your clipboard immediately, ready to paste, while clippeek uploads it to Zipline and removes the file from your Mac (or moves it to a folder, if you keep copies).
 
-**Screen recordings.** Record with ⇧⌘5 as usual. When you stop, clippeek uploads the video in 25 MB chunks (so it works behind proxies such as Cloudflare that limit request size), waits until Zipline confirms it's stored, then removes it from your Mac. You get a notification, and the link is on your clipboard unless you've copied something else in the meantime.
+**Screen recordings.** Record with ⇧⌘5 as usual. When you stop, clippeek uploads the video in 25 MB chunks (so it works behind proxies such as Cloudflare that limit request size), waits until Zipline confirms it's stored, then removes it from your Mac unless you keep copies. You get a notification, and the link is on your clipboard unless you've copied something else in the meantime.
 
 **Offline.** Anything taken while you're offline, or while the server is down, waits on your Mac and uploads as soon as it's reachable again.
 
@@ -98,9 +98,9 @@ Uploads any files with the same server and token as the app and prints each link
 ## Privacy
 
 - Your Zipline token is stored in the macOS Keychain.
-- clippeek never reads your clipboard. It only puts your own screenshots and links on it.
+- clippeek never reads your clipboard. It only puts your own screenshots, links and text you ask it to copy on it.
 - It talks to your Zipline server and nothing else. No analytics, no accounts.
-- A file only leaves your Mac after Zipline has accepted it.
+- A capture is only removed from your Mac after Zipline has accepted it. Copy Text reads screenshots on your Mac.
 
 ## Easy on energy
 

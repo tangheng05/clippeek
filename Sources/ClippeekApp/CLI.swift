@@ -2,7 +2,7 @@ import AppKit
 import ClippeekCore
 
 extension Notification.Name {
-    /// Posted by `clippeek upload` so a running app adds the upload to its history.
+    /// Posted by `clippeek upload` after it wrote history.json, so a running app reloads it.
     static let clippeekUploaded = Notification.Name("io.github.tangheng05.clippeek.uploaded")
 }
 
@@ -30,7 +30,7 @@ enum CLI {
             print(CLICommand.usage)
             exit(0)
         case .version:
-            print("clippeek \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
+            print("clippeek \(appBundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
             exit(0)
         case .upload(let files, let expiry, let copy):
             Task {
@@ -98,19 +98,20 @@ enum CLI {
         try? thumbnail?.write(to: folders.thumbnails.appending(path: thumbnailName))
         let item = HistoryItem(id: result.id, url: result.url, created: .now, deletesAt: result.deletesAt,
                                thumbnail: thumbnailName, kind: kind, localFile: file)
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-            .contains { $0.processIdentifier != getpid() }
-        if running {
-            let json = String(decoding: History(items: [item]).encoded(), as: UTF8.self)
-            DistributedNotificationCenter.default().postNotificationName(.clippeekUploaded, object: nil,
-                                                                         userInfo: ["history": json], deliverImmediately: true)
-        } else {
-            var history = History.load(from: folders.historyFile)
-            for dropped in history.add(item) {
-                try? FileManager.default.removeItem(at: folders.thumbnails.appending(path: dropped.thumbnail))
-            }
-            try? history.encoded().write(to: folders.historyFile, options: .atomic)
+        var history = History.load(from: folders.historyFile)
+        for dropped in history.add(item) {
+            try? FileManager.default.removeItem(at: folders.thumbnails.appending(path: URL(fileURLWithPath: dropped.thumbnail).lastPathComponent))
         }
+        try? history.encoded().write(to: folders.historyFile, options: .atomic)
+        // Carries nothing, so no other process can hand the app items; it just re-reads its own file.
+        DistributedNotificationCenter.default().postNotificationName(.clippeekUploaded, object: nil, userInfo: nil,
+                                                                     deliverImmediately: true)
+    }
+
+    /// Through Homebrew's symlink `Bundle.main` is the link's folder, so follow it to Clippeek.app.
+    private static var appBundle: Bundle? {
+        guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return nil }
+        return Bundle(url: executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
     }
 
     /// Read straight from the app's domain, which works however the binary was started.

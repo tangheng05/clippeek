@@ -56,7 +56,7 @@ struct HistoryView: View {
 
     @ViewBuilder
     private var status: some View {
-        if let progress = model.videoProgress {
+        if let progress = model.videoProgress ?? model.sendProgress {
             HStack(spacing: 6) {
                 if progress > 0 {
                     ProgressView(value: progress).frame(width: 54).controlSize(.mini)
@@ -141,6 +141,8 @@ struct HistoryView: View {
                                         copying: copying == item.id, copied: copied?.id == item.id ? copied : nil) { link in
                                 activate(item, link: link)
                             }
+                            .accessibilityAction(named: "Copy as Markdown") { copyLink(item, .markdown) }
+                            .accessibilityAction(named: "Copy Text") { copyText(item) }
                             .id(item.id)
                             .contextMenu { menu(for: item) }
                         }
@@ -173,7 +175,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func menu(for item: HistoryItem) -> some View {
         if item.kind == .screenshot { Button("Copy Image") { activate(item, link: false) } }
-        Button("Copy Link") { activate(item, link: true) }
+        Button("Copy Link") { copyLink(item, .plain) }
         Button("Copy as Markdown") { copyLink(item, .markdown) }
         Button("Copy as HTML") { copyLink(item, .html) }
         if item.kind == .screenshot { Button("Copy Text") { copyText(item) } }
@@ -183,7 +185,6 @@ struct HistoryView: View {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
         }
         if let deletesAt = item.deletesAt {
-            Divider()
             Text("Deletes \(deletesAt.formatted(.relative(presentation: .named)))")
         }
         Divider()
@@ -245,7 +246,12 @@ struct HistoryView: View {
 
     private func copyLink(_ item: HistoryItem, _ format: LinkFormat) {
         model.copyLink(item, format: format)
-        confirm(CopyFeedback(id: item.id, text: "Link Copied", symbol: "link"))
+        let text = switch format {
+        case .plain: "Link Copied"
+        case .markdown: "Markdown Copied"
+        case .html: "HTML Copied"
+        }
+        confirm(CopyFeedback(id: item.id, text: text, symbol: "link"))
     }
 
     private func copyText(_ item: HistoryItem) {

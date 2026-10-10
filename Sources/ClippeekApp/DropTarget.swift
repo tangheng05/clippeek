@@ -34,7 +34,7 @@ final class DropTarget: NSObject, NSWindowDelegate, NSDraggingDestination {
 
     private func files(in info: any NSDraggingInfo) -> [URL] {
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
-        return (urls ?? []).filter { !$0.hasDirectoryPath }
+        return (urls ?? []).filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
     }
 }
 

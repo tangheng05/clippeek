@@ -28,7 +28,7 @@ bin="$dest/Clippeek.app/Contents/MacOS/ClippeekApp"
 if [ -w /usr/local/bin ]; then
     ln -sf "$bin" /usr/local/bin/clippeek
 else
-    echo "For the clippeek command, run: sudo ln -sf \"$bin\" /usr/local/bin/clippeek"
+    echo "For the clippeek command, run: sudo mkdir -p /usr/local/bin && sudo ln -sf \"$bin\" /usr/local/bin/clippeek"
 fi
 
 echo "Installed to $dest. The welcome window walks you through connecting your Zipline server."
