@@ -22,9 +22,10 @@ enum Snapshots {
             ("empty", model { $0.loadSample(items: 0) }),
             ("readme", model { $0.loadSample(items: 6, videos: 1) }),
             ("few", model { $0.loadSample(items: 4, videos: 1, videoProgress: 0.4) }),
+            ("video-starting", model { $0.loadSample(items: 4, videos: 1, videoProgress: 0) }),
             ("many", model { $0.loadSample(items: 17, waiting: 2) }),
             ("problems", model {
-                $0.loadSample(items: 5, waiting: 1, problem: "Zipline didn't accept your token. Paste a new one in Settings.", capturing: [])
+                $0.loadSample(items: 5, waiting: 1, problem: "Zipline answered with an error (502). Retrying automatically.", capturing: [])
             }),
         ]
         for (suffix, name) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
@@ -44,9 +45,11 @@ enum Snapshots {
                 .background(Color(nsColor: .windowBackgroundColor))
             write(view(welcome, appearance: appearance), to: directory.appending(path: "welcome-\(suffix).png"))
             let panes: [(String, AnyView)] = [
-                ("general", AnyView(GeneralPane())),
-                ("screenshots", AnyView(ScreenshotsPane(model: model { _ in }))),
-                ("recordings", AnyView(RecordingsPane(model: model { _ in }))),
+                ("general", AnyView(GeneralPane(loginStatus: .notRegistered))),
+                ("general-approval", AnyView(GeneralPane(loginStatus: .requiresApproval))),
+                ("screenshots", AnyView(ScreenshotsPane(model: model { $0.loadSample(items: 0, capturing: [.screenshot]) }))),
+                ("recordings", AnyView(RecordingsPane(model: model { $0.loadSample(items: 0, capturing: [.video]) }))),
+                ("recordings-off", AnyView(RecordingsPane(model: model { $0.loadSample(items: 0, capturing: []) }))),
                 ("server", AnyView(ServerPane(model: model { _ in }, token: String(repeating: "x", count: 273)))),
             ]
             for (label, pane) in panes {
