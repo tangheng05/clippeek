@@ -375,6 +375,12 @@ final class AppModel {
         if kind == .video, on, notifyVideo { Notifier.shared.requestPermission() }
     }
 
+    /// Sends failed files again, e.g. after the user raised Zipline's max file size.
+    func retryFailed() {
+        for (name, state) in pending { if case .failed = state { pending[name] = .waiting } }
+        networkReturned()
+    }
+
     func dismissProblem() {
         tokenRejected = false
         problem = nil

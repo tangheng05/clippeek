@@ -66,6 +66,8 @@ struct HistoryView: View {
             }
         } else if waiting > 0 {
             Text(model.waitingForRetry ? "\(waiting) waiting, will retry" : "\(waiting) waiting")
+        } else if !failed.isEmpty {
+            Text("\(failed.count) not uploaded")
         } else if !model.history.items.isEmpty {
             Text("All uploaded")
         }
@@ -90,8 +92,11 @@ struct HistoryView: View {
         if !failed.isEmpty {
             Notice(symbol: "exclamationmark.triangle.fill", tint: .orange,
                    text: failed.count == 1 ? failed[0].reason : "\(failed.count) files couldn't upload.") {
-                Button("Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting(failed.map { model.folders.inbox.appending(path: $0.name) })
+                VStack(alignment: .trailing, spacing: 4) {
+                    Button("Retry") { model.retryFailed() }
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting(failed.map { model.folders.inbox.appending(path: $0.name) })
+                    }
                 }
             }
         }
