@@ -121,7 +121,9 @@ final class AppModel {
         }
         do {
             let result = try await client.upload(data, filename: name, expiry: expiry)
-            finish(name: name, file: file, data: data, result: result)
+            // Decoding a full-size screenshot on the main thread would hitch the UI.
+            let thumbnail = await Task.detached(priority: .utility) { Thumbnail.make(from: data) }.value
+            finish(name: name, file: file, thumbnail: thumbnail, result: result)
             attempt = 0
             problem = nil
         } catch ZiplineError.unauthorized {
@@ -144,11 +146,9 @@ final class AppModel {
         }
     }
 
-    private func finish(name: String, file: URL, data: Data, result: UploadResult) {
+    private func finish(name: String, file: URL, thumbnail: Data?, result: UploadResult) {
         let thumbnailName = "\(result.id).png"
-        if let thumbnail = Thumbnail.make(from: data) {
-            try? thumbnail.write(to: folders.thumbnails.appending(path: thumbnailName))
-        }
+        try? thumbnail?.write(to: folders.thumbnails.appending(path: thumbnailName))
         let item = HistoryItem(id: result.id, url: result.url, created: .now, deletesAt: result.deletesAt,
                                thumbnail: thumbnailName)
         for dropped in history.add(item) { removeThumbnail(dropped) }
@@ -222,7 +222,7 @@ final class AppModel {
         self.token = token.isEmpty ? nil : token
         tokenRejected = false
         problem = nil
-        uploadNext()
+        networkReturned()
     }
 
     func testConnection() async -> ConnectionStatus {
@@ -232,7 +232,8 @@ final class AppModel {
             try await client.checkConnection()
             tokenRejected = false
             problem = nil
-            uploadNext()
+            // A fixed address or token shouldn't wait out the backoff.
+            networkReturned()
             return ConnectionStatus(ok: true, message: "Connected")
         } catch ZiplineError.unauthorized {
             return ConnectionStatus(ok: false, message: "The server rejected the token.")
