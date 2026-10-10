@@ -31,11 +31,15 @@ struct WelcomeView: View {
                 step(1, "Connect your server") {
                     VStack(alignment: .leading, spacing: 8) {
                         TextField("Server", text: $model.serverText, prompt: Text("zip.example.com"))
+                            .onChange(of: model.serverText) { status = nil }
                         HStack {
                             SecureField("Token", text: $token, prompt: Text("Token from Zipline Settings"))
-                                .onSubmit(connect)
-                            Button("Connect", action: connect)
+                                .onSubmit { connect() }
+                                .onChange(of: token) { status = nil }
+                            // Return connects until the server is connected, then it means Done.
+                            Button("Connect") { connect() }
                                 .disabled(connecting || token.isEmpty || model.serverText.isEmpty)
+                                .keyboardShortcut(connected ? nil : .defaultAction)
                         }
                         connection
                     }
@@ -52,12 +56,13 @@ struct WelcomeView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button(action: done) {
+            Button(action: finish) {
                 Text("Done").frame(maxWidth: .infinity)
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
+            .disabled(connecting)
+            .keyboardShortcut(connected ? .defaultAction : nil)
         }
         .padding(28)
         .padding(.top, 8)
@@ -91,12 +96,21 @@ struct WelcomeView: View {
         }
     }
 
-    private func connect() {
-        guard !connecting, !token.isEmpty else { return }
+    private var connected: Bool { status?.ok == true }
+
+    /// A typed token that was never tested is connected first, and the window stays open if it fails.
+    private func finish() {
+        guard status == nil, !token.isEmpty, !model.serverText.isEmpty else { return done() }
+        connect { done() }
+    }
+
+    private func connect(then success: @escaping () -> Void = {}) {
+        guard !connecting, !token.isEmpty, !model.serverText.isEmpty else { return }
         connecting = true
         Task {
             status = await model.connect(token: token)
             connecting = false
+            if status?.ok == true { success() }
         }
     }
 }

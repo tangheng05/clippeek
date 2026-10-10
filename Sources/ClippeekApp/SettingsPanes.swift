@@ -76,21 +76,40 @@ func captureBinding(_ kind: CaptureKind, _ model: AppModel) -> Binding<Bool> {
 }
 
 struct OpenAtLoginToggle: View {
-    @State private var openAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var status: SMAppService.Status
+
+    init(status: SMAppService.Status = SMAppService.mainApp.status) {
+        _status = State(initialValue: status)
+    }
 
     var body: some View {
-        Toggle("Open clippeek at login", isOn: $openAtLogin)
-            .onChange(of: openAtLogin) { _, on in
-                if on { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
-                openAtLogin = SMAppService.mainApp.status == .enabled
+        Toggle("Open clippeek at login", isOn: Binding(get: { status == .enabled || status == .requiresApproval }, set: { on in
+            if on { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
+            status = SMAppService.mainApp.status
+        }))
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            status = SMAppService.mainApp.status
+        }
+        if status == .requiresApproval {
+            HStack {
+                Text("Allow clippeek in System Settings → Login Items.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Open…") { SMAppService.openSystemSettingsLoginItems() }
+                    .controlSize(.small)
             }
+        }
     }
 }
 
 struct GeneralPane: View {
+    var loginStatus = SMAppService.mainApp.status
+
     var body: some View {
         Form {
-            OpenAtLoginToggle()
+            OpenAtLoginToggle(status: loginStatus)
         }
         .pane()
     }
@@ -103,8 +122,11 @@ struct ScreenshotsPane: View {
         Form {
             Section {
                 Toggle("Send screenshots to clippeek", isOn: captureBinding(.screenshot, model))
-                expiryPicker($model.expiry)
-                Toggle("Copy the link after each upload", isOn: $model.copyLinkAfterUpload)
+                Group {
+                    expiryPicker($model.expiry)
+                    Toggle("Copy the link after each upload", isOn: $model.copyLinkAfterUpload)
+                }
+                .disabled(!model.isCapturing(.screenshot))
             } footer: {
                 Text("Screenshots go to your clipboard and Zipline instead of the Desktop. Turning this off restores your previous screenshot settings.")
                     .font(.callout)
@@ -123,9 +145,12 @@ struct RecordingsPane: View {
         Form {
             Section {
                 Toggle("Send screen recordings to clippeek", isOn: captureBinding(.video, model))
-                expiryPicker($model.expiryVideo)
-                Toggle("Copy the link when uploaded", isOn: $model.copyLinkVideo)
-                Toggle("Notify when uploaded", isOn: $model.notifyVideo)
+                Group {
+                    expiryPicker($model.expiryVideo)
+                    Toggle("Copy the link after each upload", isOn: $model.copyLinkVideo)
+                    Toggle("Notify after each upload", isOn: $model.notifyVideo)
+                }
+                .disabled(!model.isCapturing(.video))
             } footer: {
                 Text("Recordings upload when they finish and are removed from this Mac. Zipline allows 100 MB per file by default; raise \"Max file size\" in its settings for longer videos.")
                     .font(.callout)
