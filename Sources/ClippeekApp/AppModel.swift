@@ -180,14 +180,12 @@ final class AppModel {
         } catch ZiplineError.unauthorized {
             pending[name] = .waiting
             tokenRejected = true
-            problem = "Zipline rejected the token. Check it in Settings."
+            problem = "Zipline didn't accept your token. Paste a new one in Settings."
         } catch ZiplineError.tooLarge {
-            pending[name] = .failed(kind == .video
-                ? "Too large for your Zipline. Raise \"Max file size\" in Zipline's admin settings."
-                : "Too large for the server")
+            pending[name] = .failed("Too large for your Zipline. Raise \"Max file size\" in Zipline's admin settings.")
         } catch ZiplineError.server(let status) {
             pending[name] = .waiting
-            problem = "Zipline returned an error (\(status)). Retrying."
+            problem = "Zipline answered with an error (\(status)). Retrying automatically."
             scheduleRetry()
         } catch ZiplineError.badResponse {
             pending[name] = .waiting
@@ -280,7 +278,7 @@ final class AppModel {
             if let removed = history.remove(id: item.id) { removeThumbnail(removed) }
             saveHistory()
         } catch {
-            problem = "Couldn't delete it from Zipline."
+            problem = "Couldn't delete that file from Zipline. Try again in a moment."
         }
     }
 

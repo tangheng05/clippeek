@@ -124,6 +124,7 @@ final class StatusItemController {
         let recordings = menu.addItem(withTitle: "Send Screen Recordings to clippeek", action: #selector(toggleRecordings), keyEquivalent: "")
         recordings.target = self
         recordings.state = model.isCapturing(.video) ? .on : .off
+        menu.addItem(withTitle: "About clippeek", action: #selector(showAbout), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettingsFromMenu), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit clippeek", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -131,6 +132,15 @@ final class StatusItemController {
         item.menu = menu
         item.button?.performClick(nil)
         item.menu = nil
+    }
+
+    @objc private func showAbout() {
+        NSApp.activate()
+        let credits = NSAttributedString(string: "Screenshots and screen recordings, straight to your Zipline.", attributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 
     @objc private func toggleCapture() {
