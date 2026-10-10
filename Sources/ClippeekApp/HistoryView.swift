@@ -18,6 +18,7 @@ struct HistoryView: View {
     @State private var copying: String?
     @State private var copied: CopyFeedback?
     @State private var selection: String?
+    @State private var deleting: HistoryItem?
     @FocusState private var gridFocused: Bool
 
     var body: some View {
@@ -56,8 +57,13 @@ struct HistoryView: View {
     private var status: some View {
         if let progress = model.videoProgress {
             HStack(spacing: 6) {
-                ProgressView(value: progress).frame(width: 54).controlSize(.mini)
-                Text("Uploading video \(Int(progress * 100))%")
+                if progress > 0 {
+                    ProgressView(value: progress).frame(width: 54).controlSize(.mini)
+                    Text("Uploading video \(Int(progress * 100))%")
+                } else {
+                    ProgressView().controlSize(.mini)
+                    Text("Uploading video…")
+                }
             }
         } else if model.pending.values.contains(.uploading) {
             HStack(spacing: 6) {
@@ -79,14 +85,18 @@ struct HistoryView: View {
             Notice(symbol: "server.rack", tint: .orange, text: "Connect your Zipline server to start uploading.") {
                 Button("Set Up…") { openSettings(.server) }
             }
-        } else if !model.isCapturing(.screenshot) {
-            Notice(symbol: "camera.viewfinder", tint: .secondary, text: "Screenshots aren't being sent to Zipline.") {
+        } else if !model.isCapturing(.screenshot) && !model.isCapturing(.video) {
+            Notice(symbol: "camera.viewfinder", tint: .secondary, text: "clippeek is off. Captures stay on your Mac.") {
                 Button("Turn On") { model.setCapture(.screenshot, true) }
             }
         }
         if let problem = model.problem {
             Notice(symbol: "exclamationmark.triangle.fill", tint: .orange, text: problem) {
-                Button("Retry") { model.dismissProblem() }
+                if model.tokenRejected || model.token == nil {
+                    Button("Open Settings…") { openSettings(.server) }
+                } else {
+                    Button("Dismiss") { model.dismissProblem() }
+                }
             }
         }
         if !failed.isEmpty {
@@ -107,8 +117,8 @@ struct HistoryView: View {
             Image(systemName: "camera.viewfinder")
                 .font(.system(size: 28))
                 .foregroundStyle(.tertiary)
-            Text("No screenshots yet").font(.callout.weight(.medium))
-            Text("Press ⇧⌘4. The screenshot goes to your clipboard and to Zipline.")
+            Text("Nothing uploaded yet").font(.callout.weight(.medium))
+            Text("Press ⇧⌘4 for a screenshot or ⇧⌘5 to record.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -145,6 +155,11 @@ struct HistoryView: View {
                 }
                 .onAppear { gridFocused = true }
             }
+            .confirmationDialog("Delete this file from Zipline?", isPresented: deleteDialog, presenting: deleting) { item in
+                Button("Delete", role: .destructive) { Task { await model.deleteFromServer(item) } }
+            } message: { _ in
+                Text("The link will stop working.")
+            }
             Text("Click to copy. ⌥-click copies the link.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -157,7 +172,7 @@ struct HistoryView: View {
         Button("Copy Link") { activate(item, link: true) }
         Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
         Divider()
-        Button("Delete from Zipline", role: .destructive) { Task { await model.deleteFromServer(item) } }
+        Button("Delete from Zipline", role: .destructive) { deleting = item }
     }
 
     private var footer: some View {
@@ -205,17 +220,21 @@ struct HistoryView: View {
         Task {
             let ok = await model.copyImage(item)
             copying = nil
-            if ok { confirm(CopyFeedback(id: item.id, text: "Copied", symbol: "checkmark")) }
+            if ok {
+                confirm(CopyFeedback(id: item.id, text: "Copied", symbol: "checkmark"))
+            } else {
+                confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"), thenClose: false)
+            }
         }
     }
 
     /// Shows the confirmation briefly, then gets out of the way so the user can paste.
-    private func confirm(_ value: CopyFeedback) {
+    private func confirm(_ value: CopyFeedback, thenClose: Bool = true) {
         withAnimation(.easeOut(duration: 0.15)) { copied = value }
         Task {
-            try? await Task.sleep(for: .milliseconds(600))
-            close()
-            copied = nil
+            try? await Task.sleep(for: .milliseconds(thenClose ? 600 : 1500))
+            if thenClose { close() }
+            withAnimation(.easeOut(duration: 0.15)) { if copied == value { copied = nil } }
         }
     }
 
@@ -226,6 +245,10 @@ struct HistoryView: View {
             if case .failed(let reason) = state { (name, reason) } else { nil }
         }
         .sorted { $0.name < $1.name }
+    }
+
+    private var deleteDialog: Binding<Bool> {
+        Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
     }
 
     private var waiting: Int {
@@ -303,8 +326,9 @@ private struct HistoryTile: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(item.kind == .video ? "Screen recording" : "Screenshot"), \(item.created.formatted(.relative(presentation: .named)))")
             .accessibilityHint(item.kind == .video ? "Copies the link" : "Copies the image")
-            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction { action(item.kind == .video) }
+            .accessibilityAction(named: "Copy Link") { action(true) }
     }
 
     private var age: String {
