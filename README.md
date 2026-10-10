@@ -28,6 +28,7 @@
 ## Install
 
 ```sh
+brew trust tangheng05/tap
 brew install --cask tangheng05/tap/clippeek
 ```
 
