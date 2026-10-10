@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import ClippeekCore
 import SwiftUI
 
 /// `ClippeekApp --snapshots <dir>` renders the popover and Settings to PNGs with sample data,
@@ -45,8 +46,11 @@ enum Snapshots {
                 .background(Color(nsColor: .windowBackgroundColor))
             write(view(welcome, appearance: appearance), to: directory.appending(path: "welcome-\(suffix).png"))
             let panes: [(String, AnyView)] = [
-                ("general", AnyView(GeneralPane(loginStatus: .notRegistered))),
-                ("general-approval", AnyView(GeneralPane(loginStatus: .requiresApproval))),
+                ("general", AnyView(GeneralPane(model: model { _ in }, loginStatus: .notRegistered))),
+                ("general-shortcut", AnyView(GeneralPane(model: model {
+                    $0.shortcut = KeyCombo(keyCode: 9, key: "v", command: true, option: true, control: false, shift: false)
+                }, loginStatus: .enabled))),
+                ("general-approval", AnyView(GeneralPane(model: model { _ in }, loginStatus: .requiresApproval))),
                 ("screenshots", AnyView(ScreenshotsPane(model: model { $0.loadSample(items: 0, capturing: [.screenshot]) }))),
                 ("recordings", AnyView(RecordingsPane(model: model { $0.loadSample(items: 0, capturing: [.video]) }))),
                 ("recordings-off", AnyView(RecordingsPane(model: model { $0.loadSample(items: 0, capturing: []) }))),

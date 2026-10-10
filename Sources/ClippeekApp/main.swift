@@ -45,6 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+if CLI.isInvoked(CommandLine.arguments) {
+    CLI.run(Array(CommandLine.arguments.dropFirst()))
+}
+
 if CommandLine.arguments.contains("--restore-capture") {
     restoreCapture()
     exit(0)

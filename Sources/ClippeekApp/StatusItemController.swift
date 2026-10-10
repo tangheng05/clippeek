@@ -20,6 +20,7 @@ final class StatusItemController {
     private var shownCenter: MenuBarIcon.Center?
     private var riseTask: Task<Void, Never>?
     private var doneTask: Task<Void, Never>?
+    private let hotKey = HotKey()
 
     init(model: AppModel) {
         self.model = model
@@ -40,6 +41,10 @@ final class StatusItemController {
                 self?.stopWatchingOutsideClicks()
                 self?.setPopoverContent(visible: false)
             }
+        }
+        HotKey.action = { [weak self] in
+            guard self?.model.recordingShortcut == false else { return }
+            self?.toggle()
         }
         // Replaces the launch menu so its About and Settings items reach this controller.
         NSApp.mainMenu = MainMenu.make(target: self)
@@ -65,6 +70,9 @@ final class StatusItemController {
     }
 
     private func render() {
+        let taken = !hotKey.register(model.shortcut)
+        // Only write on change; every write re-triggers this observation.
+        if model.shortcutTaken != taken { model.shortcutTaken = taken }
         guard let button = item.button else { return }
         let failed = model.pending.values.contains { if case .failed = $0 { true } else { false } }
         problem = model.problem != nil || failed

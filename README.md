@@ -72,15 +72,26 @@ From then on, take screenshots and recordings exactly as you always have.
 - **⌥-click** to copy the link.
 - **Right-click** for Copy Image, Copy Link, Open in Browser and Delete from Zipline.
 - **Arrow keys** move through the grid; **Return** copies.
+- **Hover** a thumbnail to see how long ago it was taken and, if it expires, how long Zipline keeps it.
+
+Set a **shortcut** in Settings → General to open the history from anywhere.
 
 **The icon tells you what's happening:** an arrow while uploading, a check when it's done, an exclamation mark when something needs your attention, and dimmed while nothing is being sent. Right-click it to switch screenshots or recordings on or off, or to open Settings.
 
 **Settings** has four tabs:
 
-- **General:** open at login.
+- **General:** open at login, the shortcut, the version.
 - **Screenshots:** on or off, delete from the server after a day, a week or a month, copy the link after each upload.
-- **Recordings:** on or off, delete from the server after, copy the link when uploaded, notify when uploaded.
+- **Recordings:** on or off, delete from the server after, copy the link after each upload, notify after each upload.
 - **Server:** your Zipline address and token.
+
+## Command line
+
+```sh
+clippeek upload report.pdf demo.mov --expiry 7d --copy
+```
+
+Uploads any files with the same server and token as the app and prints each link, so it pipes (`| pbcopy`). Images and videos also show up in the menu bar history. `--expiry` defaults to your setting in clippeek; `--copy` puts the links on the clipboard. Homebrew installs the `clippeek` command; the install script links it into `/usr/local/bin` when it can.
 
 ## Privacy
 
@@ -127,9 +138,9 @@ The cask update needs a `TAP_TOKEN` repository secret: a fine-grained token with
 - [x] Screen recordings with chunked uploads
 - [x] App icon, welcome window, tabbed Settings, notifications
 - [x] Release workflow and Homebrew cask
-- [ ] Show the time left before Zipline deletes an upload
-- [ ] An optional shortcut of clippeek's own
-- [ ] `clippeek upload <file>` from the command line
+- [x] Show the time left before Zipline deletes an upload
+- [x] An optional shortcut of clippeek's own
+- [x] `clippeek upload <file>` from the command line
 
 ## License
 

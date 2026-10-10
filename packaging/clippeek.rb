@@ -10,6 +10,7 @@ cask "clippeek" do
   depends_on macos: :tahoe
 
   app "Clippeek.app"
+  binary "#{appdir}/Clippeek.app/Contents/MacOS/ClippeekApp", target: "clippeek"
 
   # The app isn't notarized; this skips the "Open Anyway" step.
   postflight_steps do

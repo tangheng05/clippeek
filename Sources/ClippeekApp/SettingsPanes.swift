@@ -32,7 +32,7 @@ enum SettingsTabs {
         tabs.tabStyle = .toolbar
         for pane in Pane.allCases {
             let hosting: NSViewController = switch pane {
-            case .general: host(GeneralPane())
+            case .general: host(GeneralPane(model: model))
             case .screenshots: host(ScreenshotsPane(model: model))
             case .recordings: host(RecordingsPane(model: model))
             case .server: host(ServerPane(model: model))
@@ -107,11 +107,23 @@ struct OpenAtLoginToggle: View {
 }
 
 struct GeneralPane: View {
+    @Bindable var model: AppModel
     var loginStatus = SMAppService.mainApp.status
 
     var body: some View {
         Form {
             OpenAtLoginToggle(status: loginStatus)
+            Section {
+                LabeledContent("Shortcut to open clippeek") {
+                    ShortcutRecorder(model: model)
+                }
+            } footer: {
+                if model.shortcutTaken {
+                    Text("Another app already uses this shortcut. Pick a different one.")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
+            }
             if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
                 LabeledContent("Version", value: version)
             }
@@ -226,6 +238,87 @@ struct ServerPane: View {
         Task {
             status = await model.connect(token: token)
             testing = false
+        }
+    }
+}
+
+/// Click, then press the new combination. Esc cancels.
+private struct ShortcutRecorder: View {
+    @Bindable var model: AppModel
+    @State private var monitor: Any?
+    @State private var hint: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button(action: toggleRecording) {
+                Text(label)
+                    .frame(minWidth: 96)
+                    .foregroundStyle(model.recordingShortcut ? .secondary : .primary)
+            }
+            if model.shortcut != nil, !model.recordingShortcut {
+                Button {
+                    model.shortcut = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Turn off the shortcut")
+                .accessibilityLabel("Turn off the shortcut")
+            }
+        }
+        .onDisappear(perform: stop)
+    }
+
+    private var label: String {
+        if model.recordingShortcut { return hint ?? "Press keys…" }
+        return model.shortcut?.display ?? "Record Shortcut"
+    }
+
+    private func toggleRecording() {
+        model.recordingShortcut ? stop() : start()
+    }
+
+    private func start() {
+        model.recordingShortcut = true
+        hint = nil
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            MainActor.assumeIsolated { record(event) }
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        model.recordingShortcut = false
+    }
+
+    private func record(_ event: NSEvent) {
+        if event.keyCode == 53 { return stop() }
+        let flags = event.modifierFlags
+        let combo = KeyCombo(keyCode: UInt32(event.keyCode), key: keyName(event),
+                             command: flags.contains(.command), option: flags.contains(.option),
+                             control: flags.contains(.control), shift: flags.contains(.shift))
+        guard combo.isValid else {
+            hint = "Add ⌘, ⌥ or ⌃"
+            return
+        }
+        model.shortcut = combo
+        stop()
+    }
+
+    private func keyName(_ event: NSEvent) -> String {
+        switch event.keyCode {
+        case 49: return "Space"
+        case 36: return "↩"
+        case 123: return "←"
+        case 124: return "→"
+        case 125: return "↓"
+        case 126: return "↑"
+        default:
+            let key = event.charactersIgnoringModifiers ?? ""
+            return key.unicodeScalars.allSatisfy { $0.properties.isAlphabetic || $0.properties.numericType != nil
+                || CharacterSet.punctuationCharacters.contains($0) || CharacterSet.symbols.contains($0) } ? key : ""
         }
     }
 }

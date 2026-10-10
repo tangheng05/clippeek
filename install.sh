@@ -24,4 +24,11 @@ mv "$tmp/Clippeek.app" "$dest/"
 xattr -dr com.apple.quarantine "$dest/Clippeek.app" 2>/dev/null || true
 open "$dest/Clippeek.app"
 
+bin="$dest/Clippeek.app/Contents/MacOS/ClippeekApp"
+if [ -w /usr/local/bin ]; then
+    ln -sf "$bin" /usr/local/bin/clippeek
+else
+    echo "For the clippeek command, run: sudo ln -sf \"$bin\" /usr/local/bin/clippeek"
+fi
+
 echo "Installed to $dest. The welcome window walks you through connecting your Zipline server."

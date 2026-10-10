@@ -50,6 +50,15 @@ final class AppModel {
             if notifyVideo { Notifier.shared.requestPermission() }
         }
     }
+    /// Opens the history from anywhere; nil means off.
+    var shortcut: KeyCombo? {
+        didSet {
+            let stored = shortcut.flatMap { try? JSONEncoder().encode($0) }.map { String(decoding: $0, as: UTF8.self) }
+            UserDefaults.standard.set(stored ?? "off", forKey: "keyCombo")
+        }
+    }
+    var shortcutTaken = false
+    var recordingShortcut = false
     /// 0…1 while a video uploads.
     private(set) var videoProgress: Double?
     /// When the last upload finished, for the menu bar's check mark.
@@ -91,6 +100,7 @@ final class AppModel {
         expiryVideo = Expiry(rawValue: defaults.string(forKey: "expiryVideo") ?? "") ?? .never
         copyLinkVideo = defaults.object(forKey: "copyLinkVideo") as? Bool ?? true
         notifyVideo = defaults.object(forKey: "notifyVideo") as? Bool ?? true
+        shortcut = defaults.string(forKey: "keyCombo").flatMap { try? JSONDecoder().decode(KeyCombo.self, from: Data($0.utf8)) }
         if let data = defaults.data(forKey: "captureState"), let state = try? JSONDecoder().decode(CaptureState.self, from: data) {
             captureState = state
         } else if let legacy = defaults.data(forKey: "previousScreenshotSettings"), let state = CaptureState.migrating(legacy: legacy) {
@@ -122,7 +132,21 @@ final class AppModel {
             Task { @MainActor in self?.pathChanged(current) }
         }
         path.start(queue: .main)
+        DistributedNotificationCenter.default().addObserver(forName: .clippeekUploaded, object: nil, queue: .main) { [weak self] note in
+            let json = note.userInfo?["history"] as? String
+            MainActor.assumeIsolated { self?.addFromCommandLine(json) }
+        }
         scan()
+    }
+
+    /// `clippeek upload` already wrote the thumbnail; the item just joins the history.
+    private func addFromCommandLine(_ json: String?) {
+        guard let items = json.flatMap({ History.decode(Data($0.utf8)) })?.items, !items.isEmpty else { return }
+        for item in items.reversed() {
+            for dropped in history.add(item) { removeThumbnail(dropped) }
+        }
+        saveHistory()
+        lastFinished = .now
     }
 
     /// Off the main thread: after an update macOS may ask for the password before releasing it.
