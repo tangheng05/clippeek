@@ -28,6 +28,18 @@ public struct HistoryItem: Codable, Equatable, Identifiable, Sendable {
         thumbnail = try container.decode(String.self, forKey: .thumbnail)
         kind = try container.decodeIfPresent(CaptureKind.self, forKey: .kind) ?? .screenshot
     }
+
+    /// "6d left", rounded down; nil when Zipline keeps the file.
+    public func timeLeft(now: Date) -> String? {
+        guard let deletesAt else { return nil }
+        let minutes = Int(deletesAt.timeIntervalSince(now) / 60)
+        switch minutes {
+        case ..<1: return "<1m left"
+        case ..<60: return "\(minutes)m left"
+        case ..<(24 * 60): return "\(minutes / 60)h left"
+        default: return "\(minutes / (24 * 60))d left"
+        }
+    }
 }
 
 public struct History: Codable, Equatable, Sendable {

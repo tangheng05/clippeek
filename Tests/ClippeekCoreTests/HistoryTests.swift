@@ -24,6 +24,16 @@ import Testing
         #expect(history.items.map(\.id) == ["b"])
     }
 
+    @Test func timeLeft() {
+        let now = Date(timeIntervalSince1970: 0)
+        let left = { (seconds: Double) in self.item("a", deletesAt: now.addingTimeInterval(seconds)).timeLeft(now: now) }
+        #expect(item("a").timeLeft(now: now) == nil)
+        #expect(left(30) == "<1m left")
+        #expect(left(12 * 60 + 59) == "12m left")
+        #expect(left(5 * 3600 + 120) == "5h left")
+        #expect(left(6 * 86400 + 3600) == "6d left")
+    }
+
     @Test func roundTrips() {
         let history = History(items: [item("a", deletesAt: Date(timeIntervalSince1970: 10))])
         #expect(History.decode(history.encoded()) == history)

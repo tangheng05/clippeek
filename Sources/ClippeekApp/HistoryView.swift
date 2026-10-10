@@ -171,6 +171,10 @@ struct HistoryView: View {
         if item.kind == .screenshot { Button("Copy Image") { activate(item, link: false) } }
         Button("Copy Link") { activate(item, link: true) }
         Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
+        if let deletesAt = item.deletesAt {
+            Divider()
+            Text("Deletes \(deletesAt.formatted(.relative(presentation: .named)))")
+        }
         Divider()
         Button("Delete from Zipline", role: .destructive) { deleting = item }
     }
@@ -303,14 +307,17 @@ private struct HistoryTile: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if hovering && copied == nil && !copying {
-                    Text(age)
-                        .font(.caption2.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.55), in: .capsule)
-                        .padding(5)
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(age)
+                        if let left = item.timeLeft(now: .now) { Text(left).foregroundStyle(.white.opacity(0.75)) }
+                    }
+                    .font(.caption2.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.55), in: .rect(cornerRadius: 5))
+                    .padding(5)
                 }
             }
             .overlay { feedback }
@@ -322,9 +329,10 @@ private struct HistoryTile: View {
             .contentShape(.rect(cornerRadius: 6))
             .onHover { hovering = $0 }
             .onTapGesture { action(item.kind == .video || NSEvent.modifierFlags.contains(.option)) }
-            .help(item.kind == .video ? "Click to copy the link." : "Click to copy, ⌥-click to copy the link.")
+            .help((item.kind == .video ? "Click to copy the link." : "Click to copy, ⌥-click to copy the link.")
+                  + (deletes.map { " Deletes \($0)." } ?? ""))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(item.kind == .video ? "Screen recording" : "Screenshot"), \(item.created.formatted(.relative(presentation: .named)))")
+            .accessibilityLabel("\(item.kind == .video ? "Screen recording" : "Screenshot"), \(item.created.formatted(.relative(presentation: .named)))\(deletes.map { ", deletes \($0)" } ?? "")")
             .accessibilityHint(item.kind == .video ? "Copies the link" : "Copies the image")
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction { action(item.kind == .video) }
@@ -333,6 +341,11 @@ private struct HistoryTile: View {
 
     private var age: String {
         item.created.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+    }
+
+    /// "in 6 days", or nil when Zipline keeps the file.
+    private var deletes: String? {
+        item.deletesAt?.formatted(.relative(presentation: .named))
     }
 
     @ViewBuilder
