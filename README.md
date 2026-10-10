@@ -96,7 +96,7 @@ clippeek doesn't poll. It wakes up when macOS saves a screenshot into its folder
 ## Good to know
 
 - **Large recordings.** Zipline allows 100 MB per file by default. Raise "Max file size" in Zipline's server settings if you record longer videos.
-- **Uninstalling.** Turn off both "Send screenshots" and "Send screen recordings" first, so your previous settings come back. Then `brew uninstall --cask --zap clippeek`, or drag the app to the Trash.
+- **Uninstalling.** `brew uninstall --cask --zap clippeek` puts your previous screenshot settings back and moves any screenshots that weren't uploaded to your screenshot folder. If you drag the app to the Trash instead, turn off both "Send screenshots" and "Send screen recordings" first.
 
 ## Build from source
 
