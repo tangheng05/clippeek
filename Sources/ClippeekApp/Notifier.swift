@@ -1,7 +1,7 @@
 import AppKit
 import UserNotifications
 
-/// Says when a video finished uploading; clicking the notification opens it.
+/// Says when a video finished uploading or failed; clicking opens it, or shows the file in Finder.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
@@ -25,14 +25,30 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.title = "Screen recording uploaded"
         content.body = linkCopied ? "Link copied. Click to open it." : "Click to open it."
         content.userInfo = ["url": url.absoluteString]
+        post(content)
+    }
+
+    func failed(_ file: URL, reason: String) {
+        guard available else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Screen recording didn't upload"
+        content.body = reason
+        content.userInfo = ["file": file.path]
+        post(content)
+    }
+
+    private func post(_ content: UNNotificationContent) {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             didReceive response: UNNotificationResponse) async {
-        guard let text = response.notification.request.content.userInfo["url"] as? String,
-              let url = URL(string: text) else { return }
-        _ = await MainActor.run { NSWorkspace.shared.open(url) }
+        let info = response.notification.request.content.userInfo
+        if let path = info["file"] as? String {
+            await MainActor.run { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: path)]) }
+        } else if let text = info["url"] as? String, let url = URL(string: text) {
+            _ = await MainActor.run { NSWorkspace.shared.open(url) }
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
