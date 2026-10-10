@@ -11,6 +11,12 @@ final class StatusItemController {
     private var outsideClickMonitor: Any?
     private var lastClosed = Date.distantPast
     private var settings: AppWindow?
+    private var uploading = false
+    private var problem = false
+    private var showingDone = false
+    private var rise: CGFloat = 0
+    private var lastFinished: Date?
+    private var shownCenter: MenuBarIcon.Center?
 
     init(model: AppModel) {
         self.model = model
@@ -50,11 +56,49 @@ final class StatusItemController {
     private func render() {
         guard let button = item.button else { return }
         let failed = model.pending.values.contains { if case .failed = $0 { true } else { false } }
-        let warning = model.problem != nil || failed
-        button.image = NSImage(systemSymbolName: warning ? "exclamationmark.triangle" : "camera.viewfinder",
-                               accessibilityDescription: "clippeek")
+        problem = model.problem != nil || failed
+        let nowUploading = model.videoProgress != nil || model.pending.values.contains(.uploading)
+        if nowUploading && !uploading { playRise() }
+        uploading = nowUploading
+        if let finished = model.lastFinished, finished != lastFinished {
+            lastFinished = finished
+            showDone()
+        }
         button.appearsDisabled = !model.isCapturing(.screenshot) && !model.isCapturing(.video)
         button.toolTip = button.appearsDisabled ? "clippeek (nothing is being sent)" : "clippeek"
+        button.setAccessibilityLabel("clippeek")
+        button.setAccessibilityValue(problem ? "Needs attention" : uploading ? "Uploading" : "Ready")
+        applyIcon()
+    }
+
+    /// Problems win over uploading, uploading over the brief check.
+    private func applyIcon() {
+        let center: MenuBarIcon.Center = problem ? .exclamation : uploading ? .arrow(rise: rise) : showingDone ? .check : .none
+        guard center != shownCenter else { return }
+        shownCenter = center
+        item.button?.image = MenuBarIcon.image(center)
+    }
+
+    /// The arrow lifts into place once when an upload starts.
+    private func playRise() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        Task {
+            for step in stride(from: -3.0, through: 0, by: 0.5) {
+                rise = step
+                applyIcon()
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+        }
+    }
+
+    private func showDone() {
+        showingDone = true
+        applyIcon()
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            showingDone = false
+            applyIcon()
+        }
     }
 
     @objc private func clicked() {

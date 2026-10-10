@@ -46,6 +46,8 @@ final class AppModel {
     }
     /// 0…1 while a video uploads.
     private(set) var videoProgress: Double?
+    /// When the last upload finished, for the menu bar's check mark.
+    private(set) var lastFinished: Date?
     private(set) var captureState: CaptureState
 
     let folders: Folders
@@ -53,7 +55,7 @@ final class AppModel {
     @ObservationIgnored private let path = NWPathMonitor()
     @ObservationIgnored private var uploading = false
     /// Set after a network error until the backoff timer or a network change.
-    @ObservationIgnored private var waitingForRetry = false
+    private(set) var waitingForRetry = false
     /// Only a rejected token stops uploads; other problems are just shown.
     @ObservationIgnored private var tokenRejected = false
     @ObservationIgnored private var attempt = 0
@@ -215,6 +217,7 @@ final class AppModel {
         saveHistory()
         try? FileManager.default.removeItem(at: file)
         pending[name] = nil
+        lastFinished = .now
         switch kind {
         case .screenshot:
             if copyLinkAfterUpload { Clipboard.put(link: result.url) }

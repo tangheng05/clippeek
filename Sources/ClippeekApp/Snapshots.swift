@@ -32,10 +32,46 @@ enum Snapshots {
                     .background(Color(nsColor: .windowBackgroundColor))
                 write(view(popover, appearance: appearance), to: directory.appending(path: "popover-\(label)-\(suffix).png"))
             }
+            let icons: [(String, MenuBarIcon.Center)] = [("idle", .none), ("uploading", .arrow(rise: 0)),
+                                                         ("done", .check), ("problem", .exclamation)]
+            for (label, center) in icons {
+                write(menuBar(MenuBarIcon.image(center), appearance: appearance),
+                      to: directory.appending(path: "menubar-\(label)-\(suffix).png"))
+            }
             let settings = SettingsView(model: model { _ in }, token: String(repeating: "x", count: 273))
                 .background(Color(nsColor: .windowBackgroundColor))
             write(view(settings, appearance: appearance), to: directory.appending(path: "settings-\(suffix).png"))
         }
+    }
+
+    /// The item on a plain menu-bar-coloured strip, at 4x so it's easy to inspect.
+    private static func menuBar(_ image: NSImage, appearance: NSAppearance) -> NSBitmapImageRep? {
+        let padding: CGFloat = 8
+        let size = NSSize(width: image.size.width + padding * 2, height: 24)
+        let scale: CGFloat = 4
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale),
+                                         pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        appearance.performAsCurrentDrawingAppearance {
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            (dark ? NSColor(white: 0.16, alpha: 1) : NSColor(white: 0.92, alpha: 1)).setFill()
+            NSRect(origin: .zero, size: size).fill()
+            let target = NSRect(x: padding, y: (size.height - image.size.height) / 2,
+                                width: image.size.width, height: image.size.height)
+            // What the menu bar does with a template: keep the alpha, paint it in the label colour.
+            let context = NSGraphicsContext.current?.cgContext
+            context?.beginTransparencyLayer(in: target, auxiliaryInfo: nil)
+            image.draw(in: target)
+            NSColor.labelColor.set()
+            target.fill(using: .sourceAtop)
+            context?.endTransparencyLayer()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
     }
 
     /// Hosts the view in an offscreen window so AppKit-backed controls render too.
