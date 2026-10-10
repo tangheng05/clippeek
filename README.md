@@ -133,17 +133,6 @@ Bump `CFBundleShortVersionString` in `Resources/Info.plist`, commit, then run `s
 
 The cask update needs a `TAP_TOKEN` repository secret: a fine-grained token with **Contents: read and write** on `homebrew-tap`.
 
-## Roadmap
-
-- [x] Screenshots to the clipboard and Zipline, with an offline queue
-- [x] Menu bar history: copy an image or its link again
-- [x] Screen recordings with chunked uploads
-- [x] App icon, welcome window, tabbed Settings, notifications
-- [x] Release workflow and Homebrew cask
-- [x] Show the time left before Zipline deletes an upload
-- [x] An optional shortcut of clippeek's own
-- [x] `clippeek upload <file>` from the command line
-
 ## License
 
 MIT
