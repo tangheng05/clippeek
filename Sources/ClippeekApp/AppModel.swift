@@ -57,7 +57,7 @@ final class AppModel {
     /// Set after a network error until the backoff timer or a network change.
     private(set) var waitingForRetry = false
     /// Only a rejected token stops uploads; other problems are just shown.
-    @ObservationIgnored private var tokenRejected = false
+    private(set) var tokenRejected = false
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var retry: Task<Void, Never>?
     /// The clipboard's change count when each recording landed.
@@ -305,10 +305,7 @@ final class AppModel {
     @discardableResult
     func copyImage(_ item: HistoryItem) async -> Bool {
         guard let (data, response) = try? await URLSession.shared.data(from: item.url),
-              (response as? HTTPURLResponse)?.statusCode == 200 else {
-            problem = "Couldn't download that screenshot from Zipline."
-            return false
-        }
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
         Clipboard.put(image: data)
         return true
     }
