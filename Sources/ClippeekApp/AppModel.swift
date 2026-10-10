@@ -340,7 +340,8 @@ final class AppModel {
 #if DEBUG
 extension AppModel {
     /// Fake state for `--snapshots`; thumbnails go into this model's own folders.
-    func loadSample(items count: Int, waiting: Int = 0, problem: String? = nil, capturing: Set<CaptureKind> = [.screenshot]) {
+    func loadSample(items count: Int, waiting: Int = 0, problem: String? = nil, capturing: Set<CaptureKind> = [.screenshot],
+                    videos: Int = 0, videoProgress: Double? = nil) {
         try? FileManager.default.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
         let colors: [NSColor] = [.systemBlue, .systemTeal, .systemIndigo, .systemOrange, .systemPink, .systemGreen]
         var history = History()
@@ -359,13 +360,15 @@ extension AppModel {
                 try? png.write(to: folders.thumbnails.appending(path: name))
             }
             history.add(HistoryItem(id: "\(index)", url: URL(string: "https://zip.example.com/u/\(index).png")!,
-                                    created: .now.addingTimeInterval(Double(-index * 900)), deletesAt: nil, thumbnail: name))
+                                    created: .now.addingTimeInterval(Double(-index * 900)), deletesAt: nil, thumbnail: name,
+                                    kind: index < videos ? .video : .screenshot))
         }
         self.history = history
         pending = Dictionary(uniqueKeysWithValues: (0..<waiting).map { ("Screenshot \($0).png", PendingState.waiting) })
         self.problem = problem
         captureState = CaptureState()
         for kind in capturing { _ = captureState.set(kind, on: true, current: [:], inbox: folders.inbox) }
+        self.videoProgress = videoProgress
     }
 }
 #endif

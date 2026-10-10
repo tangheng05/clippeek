@@ -49,7 +49,10 @@ struct HistoryView: View {
         HStack(alignment: .firstTextBaseline) {
             Text("clippeek").font(.headline)
             Spacer()
-            if model.pending.values.contains(.uploading) {
+            if let progress = model.videoProgress {
+                ProgressView(value: progress).frame(width: 60).controlSize(.mini)
+                Text("Uploading video… \(Int(progress * 100))%").font(.callout).foregroundStyle(.secondary)
+            } else if model.pending.values.contains(.uploading) {
                 ProgressView().controlSize(.mini)
                 Text("Uploading…").font(.callout).foregroundStyle(.secondary)
             } else if waiting > 0 {
@@ -111,7 +114,7 @@ struct HistoryView: View {
             }
             .frame(height: gridHeight)
             .scrollIndicators(.automatic)
-            Text("Click to copy the image, ⌥-click to copy the link.")
+            Text("Click to copy, ⌥-click to copy the link. Videos copy their link.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -129,7 +132,7 @@ struct HistoryView: View {
 
     private func tile(_ item: HistoryItem) -> some View {
         Button {
-            activate(item, link: NSEvent.modifierFlags.contains(.option))
+            activate(item, link: item.kind == .video || NSEvent.modifierFlags.contains(.option))
         } label: {
             // Filling a fixed box keeps odd-shaped screenshots from stretching the grid.
             Color.clear
@@ -142,13 +145,23 @@ struct HistoryView: View {
                     }
                 }
                 .clipShape(.rect(cornerRadius: 6))
+                .overlay(alignment: .bottomLeading) {
+                    if item.kind == .video {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.white)
+                            .padding(5)
+                            .background(.black.opacity(0.55), in: .circle)
+                            .padding(5)
+                    }
+                }
                 .overlay { overlay(for: item) }
                 .contentShape(.rect(cornerRadius: 6))
         }
         .buttonStyle(TileStyle())
-        .help("\(item.created.formatted(.relative(presentation: .named))). Click to copy, ⌥-click to copy the link.")
+        .help("\(item.created.formatted(.relative(presentation: .named))). " + (item.kind == .video ? "Click to copy the link." : "Click to copy, ⌥-click to copy the link."))
         .contextMenu {
-            Button("Copy Image") { activate(item, link: false) }
+            if item.kind == .screenshot { Button("Copy Image") { activate(item, link: false) } }
             Button("Copy Link") { activate(item, link: true) }
             Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
             Divider()

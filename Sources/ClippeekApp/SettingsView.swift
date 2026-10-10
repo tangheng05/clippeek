@@ -17,9 +17,26 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Send screenshots to clippeek", isOn: Binding(get: { model.isCapturing(.screenshot) }, set: { model.setCapture(.screenshot, $0) }))
+                Toggle("Send screenshots to clippeek", isOn: capture(.screenshot))
+                expiryPicker($model.expiry)
+                Toggle("Copy the link after each upload", isOn: $model.copyLinkAfterUpload)
+            } header: {
+                Text("Screenshots")
             } footer: {
                 Text("Screenshots go to your clipboard and Zipline instead of the Desktop. Turning this off restores your previous screenshot settings.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                Toggle("Send screen recordings to clippeek", isOn: capture(.video))
+                expiryPicker($model.expiryVideo)
+                Toggle("Copy the link when uploaded", isOn: $model.copyLinkVideo)
+                Toggle("Notify when uploaded", isOn: $model.notifyVideo)
+            } header: {
+                Text("Screen recordings")
+            } footer: {
+                Text("Recordings upload when they finish and are removed from this Mac. Zipline allows 100 MB per file by default; raise \"Max file size\" in its settings for longer videos.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -42,15 +59,8 @@ struct SettingsView: View {
                     Button("Save and Test", action: saveAndTest)
                         .disabled(testing || token.isEmpty || model.serverText.isEmpty)
                 }
-                Picker("Delete from server after", selection: $model.expiry) {
-                    Text("Never").tag(Expiry.never)
-                    Text("1 day").tag(Expiry.oneDay)
-                    Text("7 days").tag(Expiry.sevenDays)
-                    Text("30 days").tag(Expiry.thirtyDays)
-                }
-                Toggle("Copy the link after each upload", isOn: $model.copyLinkAfterUpload)
             }
-            Section {
+            Section("General") {
                 Toggle("Open at login", isOn: $openAtLogin)
                     .onChange(of: openAtLogin) { _, on in
                         if on { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
@@ -60,6 +70,19 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 440)
+    }
+
+    private func capture(_ kind: CaptureKind) -> Binding<Bool> {
+        Binding(get: { model.isCapturing(kind) }, set: { model.setCapture(kind, $0) })
+    }
+
+    private func expiryPicker(_ selection: Binding<Expiry>) -> some View {
+        Picker("Delete from server after", selection: selection) {
+            Text("Never").tag(Expiry.never)
+            Text("1 day").tag(Expiry.oneDay)
+            Text("7 days").tag(Expiry.sevenDays)
+            Text("30 days").tag(Expiry.thirtyDays)
+        }
     }
 
     @ViewBuilder

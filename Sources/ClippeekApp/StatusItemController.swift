@@ -70,6 +70,9 @@ final class StatusItemController {
         let capture = menu.addItem(withTitle: "Send Screenshots to clippeek", action: #selector(toggleCapture), keyEquivalent: "")
         capture.target = self
         capture.state = model.isCapturing(.screenshot) ? .on : .off
+        let recordings = menu.addItem(withTitle: "Send Screen Recordings to clippeek", action: #selector(toggleRecordings), keyEquivalent: "")
+        recordings.target = self
+        recordings.state = model.isCapturing(.video) ? .on : .off
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit clippeek", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -81,6 +84,10 @@ final class StatusItemController {
 
     @objc private func toggleCapture() {
         model.setCapture(.screenshot, !model.isCapturing(.screenshot))
+    }
+
+    @objc private func toggleRecordings() {
+        model.setCapture(.video, !model.isCapturing(.video))
     }
 
     @objc private func toggle() {

@@ -19,7 +19,7 @@ enum Snapshots {
         }
         let states: [(String, AppModel)] = [
             ("empty", model { $0.loadSample(items: 0) }),
-            ("few", model { $0.loadSample(items: 4) }),
+            ("few", model { $0.loadSample(items: 4, videos: 1, videoProgress: 0.4) }),
             ("many", model { $0.loadSample(items: 17, waiting: 2) }),
             ("problems", model {
                 $0.loadSample(items: 5, waiting: 1, problem: "Zipline rejected the token. Check it in Settings.", capturing: [])
