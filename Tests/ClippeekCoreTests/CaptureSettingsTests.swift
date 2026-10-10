@@ -54,12 +54,62 @@ import Testing
 
     @Test func reapplyCoversEveryKindThatIsOn() {
         var state = CaptureState()
-        #expect(state.reapply(inbox: inbox) == nil)
+        #expect(state.reapply(current: [:], inbox: inbox) == nil)
         _ = state.set(.video, on: true, current: [:], inbox: inbox)
-        #expect(state.reapply(inbox: inbox) == PreferenceChange(
+        #expect(state.reapply(current: [:], inbox: inbox) == PreferenceChange(
             keys: ["show-thumbnail", "location", "target", "location-screenrecording", "target-screenrecording"],
             values: ["show-thumbnail": .bool(false), "location": .string("/tmp/inbox"), "target": .string("file"),
                      "location-screenrecording": .string("/tmp/inbox"), "target-screenrecording": .string("file")]))
+    }
+
+    /// A location the user picked while clippeek was on is what turning off brings back.
+    @Test func reapplyKeepsTheUsersNewChoice() {
+        var state = CaptureState()
+        _ = state.set(.screenshot, on: true, current: ["location-screenshot": .string("/Users/me/Desktop")], inbox: inbox)
+        let picked: Preferences = ["location-screenshot": .string("/Users/me/Documents"), "target-screenshot": .string("file"),
+                                   "show-thumbnail": .bool(false), "location": .string("/tmp/inbox"), "target": .string("file")]
+        #expect(state.reapply(current: picked, inbox: inbox)?.values["location-screenshot"] == .string("/tmp/inbox"))
+        let off = state.set(.screenshot, on: false, current: [:], inbox: inbox)
+        #expect(off?.values["location-screenshot"] == .string("/Users/me/Documents"))
+        #expect(off?.values["target-screenshot"] == .string("file"))
+    }
+
+    @Test func reapplyLeavesSavedValuesWhenNothingMoved() {
+        var state = CaptureState()
+        _ = state.set(.screenshot, on: true, current: original, inbox: inbox)
+        let ours: Preferences = ["location-screenshot": .string("/tmp/inbox/"), "target-screenshot": .string("file"),
+                                 "show-thumbnail": .bool(false), "location": .string("/tmp/inbox"), "target": .string("file")]
+        var reapplied = state
+        _ = reapplied.reapply(current: ours, inbox: inbox)
+        #expect(reapplied == state)
+    }
+
+    /// Turning on again over a leftover inbox location mustn't make the inbox the value to restore.
+    @Test func neverSavesTheInboxAsPrevious() {
+        var state = CaptureState()
+        let leftover: Preferences = ["location-screenshot": .string("/tmp/inbox"), "target-screenshot": .string("file"),
+                                     "location": .string("/tmp/inbox/"), "target": .string("file"),
+                                     "show-thumbnail": .bool(true)]
+        _ = state.set(.screenshot, on: true, current: leftover, inbox: inbox)
+        let off = state.set(.screenshot, on: false, current: [:], inbox: inbox)
+        #expect(off?.keys.contains("location-screenshot") == true)
+        #expect(off?.values == ["show-thumbnail": .bool(true)])
+    }
+
+    @Test func restoreTurnsEverythingOff() throws {
+        #expect(CaptureState().restoreChange() == nil)
+        var state = CaptureState()
+        _ = state.set(.screenshot, on: true, current: original, inbox: inbox)
+        _ = state.set(.video, on: true, current: original, inbox: inbox)
+        let restore = try #require(state.restoreChange())
+        for order in [[CaptureKind.screenshot, .video], [.video, .screenshot]] {
+            var off = state
+            let first = off.set(order[0], on: false, current: [:], inbox: inbox)
+            let last = off.set(order[1], on: false, current: [:], inbox: inbox)
+            #expect(Set(restore.keys) == Set((first?.keys ?? []) + (last?.keys ?? [])))
+            #expect(restore.values == (first?.values ?? [:]).merging(last?.values ?? [:]) { $1 })
+        }
+        #expect(state.isOn(.screenshot) && state.isOn(.video))
     }
 
     @Test func roundTripsThroughJSON() throws {

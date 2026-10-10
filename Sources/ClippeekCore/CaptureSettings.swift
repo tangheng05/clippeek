@@ -77,8 +77,9 @@ public struct CaptureState: Codable, Equatable, Sendable {
         guard on != isOn(kind) else { return nil }
         let kindKeys = Self.keys(for: kind)
         if on {
-            if previous.isEmpty { previousShared = current.filter { Self.sharedKeys.contains($0.key) } }
-            previous[kind] = current.filter { kindKeys.contains($0.key) }
+            let saved = Self.userValues(current, inbox: inbox)
+            if previous.isEmpty { previousShared = saved.filter { Self.sharedKeys.contains($0.key) } }
+            previous[kind] = saved.filter { kindKeys.contains($0.key) }
             return PreferenceChange(keys: kindKeys + Self.sharedKeys,
                                     values: Self.capturing(kind, into: inbox).merging(Self.shared(into: inbox)) { $1 })
         }
@@ -92,14 +93,37 @@ public struct CaptureState: Codable, Equatable, Sendable {
         return PreferenceChange(keys: keys, values: values)
     }
 
-    /// Puts the inbox back for every kind that's on, e.g. after something else changed the location.
-    public func reapply(inbox: URL) -> PreferenceChange? {
+    /// Puts the inbox back for every kind that's on. Values something else set meanwhile are the user's
+    /// new choice, so they become what turning off restores.
+    public mutating func reapply(current: Preferences, inbox: URL) -> PreferenceChange? {
         guard !previous.isEmpty else { return nil }
-        var change = PreferenceChange(keys: Self.sharedKeys, values: Self.shared(into: inbox))
-        for kind in CaptureKind.allCases where isOn(kind) {
-            change.keys += Self.keys(for: kind)
-            change.values.merge(Self.capturing(kind, into: inbox)) { $1 }
+        let shared = Self.shared(into: inbox)
+        if !Self.unchanged(current, ours: shared, inbox: inbox) {
+            previousShared = Self.userValues(current, inbox: inbox).filter { Self.sharedKeys.contains($0.key) }
         }
+        var change = PreferenceChange(keys: Self.sharedKeys, values: shared)
+        for kind in CaptureKind.allCases where isOn(kind) {
+            let kindKeys = Self.keys(for: kind)
+            let capturing = Self.capturing(kind, into: inbox)
+            if !Self.unchanged(current, ours: capturing, inbox: inbox) {
+                previous[kind] = Self.userValues(current, inbox: inbox).filter { kindKeys.contains($0.key) }
+            }
+            change.keys += kindKeys
+            change.values.merge(capturing) { $1 }
+        }
+        return change
+    }
+
+    /// What turning off every kind that's on would write, e.g. before the app is removed.
+    public func restoreChange() -> PreferenceChange? {
+        guard !previous.isEmpty else { return nil }
+        var change = PreferenceChange(keys: [], values: previousShared)
+        for kind in CaptureKind.allCases {
+            guard let values = previous[kind] else { continue }
+            change.keys += Self.keys(for: kind)
+            change.values.merge(values) { $1 }
+        }
+        change.keys += Self.sharedKeys
         return change
     }
 
@@ -107,7 +131,7 @@ public struct CaptureState: Codable, Equatable, Sendable {
     public func userFolder(for kind: CaptureKind, current: Preferences, inbox: URL, home: URL) -> URL {
         let locationKey = kind == .screenshot ? "location-screenshot" : "location-screenrecording"
         for value in [current[locationKey], previousShared["location"], current["location"]] {
-            if case .string(let path)? = value, path != inbox.path { return URL(fileURLWithPath: path) }
+            if case .string(let path)? = value, !Self.points(value, at: inbox) { return URL(fileURLWithPath: path) }
         }
         return home.appending(path: "Desktop")
     }
@@ -158,6 +182,29 @@ public struct CaptureState: Codable, Equatable, Sendable {
         Dictionary(uniqueKeysWithValues: keys(for: kind).map { key in
             (key, key.hasPrefix("location") ? .string(inbox.path) : .string("file"))
         })
+    }
+
+    /// The inbox is never the user's own choice, so it and its "file" target aren't kept to restore.
+    private static func userValues(_ values: Preferences, inbox: URL) -> Preferences {
+        var result = values
+        for (key, value) in values where points(value, at: inbox) {
+            result[key] = nil
+            let target = key.replacingOccurrences(of: "location", with: "target")
+            if result[target] == .string("file") { result[target] = nil }
+        }
+        return result
+    }
+
+    private static func unchanged(_ current: Preferences, ours: Preferences, inbox: URL) -> Bool {
+        ours.allSatisfy { key, value in
+            current[key] == value || (points(value, at: inbox) && points(current[key], at: inbox))
+        }
+    }
+
+    private static func points(_ value: PreferenceValue?, at inbox: URL) -> Bool {
+        guard case .string(let path)? = value else { return false }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
+            == inbox.standardizedFileURL.path
     }
 
     /// The floating thumbnail delays saving by about 5 s, so it's turned off.

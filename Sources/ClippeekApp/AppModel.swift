@@ -90,7 +90,10 @@ final class AppModel {
         try? files.createDirectory(at: folders.inbox, withIntermediateDirectories: true)
         try? files.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
         // Puts back the inbox if something else changed a capture location meanwhile.
-        if let change = captureState.reapply(inbox: folders.inbox) { SystemPreferences.apply(change) }
+        if let change = captureState.reapply(current: SystemPreferences.read(CaptureState.allKeys), inbox: folders.inbox) {
+            SystemPreferences.apply(change)
+            UserDefaults.standard.set(try? JSONEncoder().encode(captureState), forKey: "captureState")
+        }
         history = History.decode(try? Data(contentsOf: folders.historyFile))
         removeExpired()
         watcher = InboxWatcher(folder: folders.inbox) { [weak self] in self?.scan() }
