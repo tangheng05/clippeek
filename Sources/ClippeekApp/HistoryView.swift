@@ -6,6 +6,7 @@ struct HistoryView: View {
     static let width: CGFloat = 320
     private static let tileHeight: CGFloat = 64
     private static let spacing: CGFloat = 8
+    private static let scrollerGutter: CGFloat = 12
     private static let visibleRows = 4
 
     let model: AppModel
@@ -144,7 +145,10 @@ struct HistoryView: View {
                             .contextMenu { menu(for: item) }
                         }
                     }
+                    .padding(.horizontal, Self.scrollerGutter)
                 }
+                // Widens the scroll view into the margin, so the scroller sits beside the tiles, not on them.
+                .padding(.horizontal, -Self.scrollerGutter)
                 .frame(height: gridHeight)
                 .scrollIndicators(.automatic)
                 .focusable()
