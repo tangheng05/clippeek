@@ -90,7 +90,7 @@ public enum Zipline {
     }
 
     /// "never" and anything unparseable mean no expiry.
-    private static func date(_ text: String) -> Date? {
+    static func date(_ text: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = formatter.date(from: text) { return date }
