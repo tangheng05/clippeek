@@ -36,6 +36,16 @@ final class AppModel {
     var serverText: String { didSet { UserDefaults.standard.set(serverText, forKey: "server") } }
     var expiry: Expiry { didSet { UserDefaults.standard.set(expiry.rawValue, forKey: "expiry") } }
     var copyLinkAfterUpload: Bool { didSet { UserDefaults.standard.set(copyLinkAfterUpload, forKey: "copyLink") } }
+    var expiryVideo: Expiry { didSet { UserDefaults.standard.set(expiryVideo.rawValue, forKey: "expiryVideo") } }
+    var copyLinkVideo: Bool { didSet { UserDefaults.standard.set(copyLinkVideo, forKey: "copyLinkVideo") } }
+    var notifyVideo: Bool {
+        didSet {
+            UserDefaults.standard.set(notifyVideo, forKey: "notifyVideo")
+            if notifyVideo { Notifier.shared.requestPermission() }
+        }
+    }
+    /// 0…1 while a video uploads.
+    private(set) var videoProgress: Double?
     private(set) var captureState: CaptureState
 
     let folders: Folders
@@ -57,6 +67,9 @@ final class AppModel {
         serverText = defaults.string(forKey: "server") ?? ""
         expiry = Expiry(rawValue: defaults.string(forKey: "expiry") ?? "") ?? .never
         copyLinkAfterUpload = defaults.bool(forKey: "copyLink")
+        expiryVideo = Expiry(rawValue: defaults.string(forKey: "expiryVideo") ?? "") ?? .never
+        copyLinkVideo = defaults.object(forKey: "copyLinkVideo") as? Bool ?? true
+        notifyVideo = defaults.object(forKey: "notifyVideo") as? Bool ?? true
         if let data = defaults.data(forKey: "captureState"), let state = try? JSONDecoder().decode(CaptureState.self, from: data) {
             captureState = state
         } else if let legacy = defaults.data(forKey: "previousScreenshotSettings"), let state = CaptureState.migrating(legacy: legacy) {
@@ -129,15 +142,37 @@ final class AppModel {
     }
 
     private func upload(name: String, file: URL, client: ZiplineClient) async {
-        guard let data = try? Data(contentsOf: file) else {
+        guard FileManager.default.fileExists(atPath: file.path) else {
             pending[name] = nil
             return
         }
+        let kind = Inbox.kind(of: name) ?? .screenshot
         do {
-            let result = try await client.upload(data, filename: name, expiry: expiry)
-            // Decoding a full-size screenshot on the main thread would hitch the UI.
-            let thumbnail = await Task.detached(priority: .utility) { Thumbnail.make(from: data) }.value
-            finish(name: name, file: file, thumbnail: thumbnail, result: result)
+            let result: UploadResult
+            let thumbnail: Data?
+            switch kind {
+            case .screenshot:
+                guard let data = try? Data(contentsOf: file) else {
+                    pending[name] = nil
+                    return
+                }
+                result = try await client.upload(data, filename: name, expiry: expiry)
+                // Decoding a full-size screenshot on the main thread would hitch the UI.
+                thumbnail = await Task.detached(priority: .utility) { Thumbnail.make(from: data) }.value
+            case .video:
+                videoProgress = 0
+                defer { videoProgress = nil }
+                result = try await client.uploadFile(
+                    at: file, filename: name, expiry: expiryVideo,
+                    progress: { [weak self] value in
+                        Task { @MainActor in
+                            if self?.videoProgress != nil { self?.videoProgress = value }
+                        }
+                    },
+                    betweenChunks: { [weak self] in await self?.uploadWaitingScreenshots(client: client) })
+                thumbnail = await Thumbnail.make(fromVideo: file)
+            }
+            finish(name: name, file: file, kind: kind, thumbnail: thumbnail, result: result)
             attempt = 0
             problem = nil
         } catch ZiplineError.unauthorized {
@@ -145,7 +180,9 @@ final class AppModel {
             tokenRejected = true
             problem = "Zipline rejected the token. Check it in Settings."
         } catch ZiplineError.tooLarge {
-            pending[name] = .failed("Too large for the server")
+            pending[name] = .failed(kind == .video
+                ? "Too large for your Zipline. Raise \"Max file size\" in Zipline's admin settings."
+                : "Too large for the server")
         } catch ZiplineError.server(let status) {
             pending[name] = .waiting
             problem = "Zipline returned an error (\(status)). Retrying."
@@ -160,16 +197,31 @@ final class AppModel {
         }
     }
 
-    private func finish(name: String, file: URL, thumbnail: Data?, result: UploadResult) {
+    /// Runs between a video's chunks, so screenshots taken meanwhile don't wait for the whole video.
+    private func uploadWaitingScreenshots(client: ZiplineClient) async {
+        while !waitingForRetry, !tokenRejected,
+              let name = pending.filter({ $0.value == .waiting && Inbox.kind(of: $0.key) == .screenshot }).keys.sorted().first {
+            pending[name] = .uploading
+            await upload(name: name, file: folders.inbox.appending(path: name), client: client)
+        }
+    }
+
+    private func finish(name: String, file: URL, kind: CaptureKind, thumbnail: Data?, result: UploadResult) {
         let thumbnailName = "\(result.id).png"
         try? thumbnail?.write(to: folders.thumbnails.appending(path: thumbnailName))
         let item = HistoryItem(id: result.id, url: result.url, created: .now, deletesAt: result.deletesAt,
-                               thumbnail: thumbnailName)
+                               thumbnail: thumbnailName, kind: kind)
         for dropped in history.add(item) { removeThumbnail(dropped) }
         saveHistory()
         try? FileManager.default.removeItem(at: file)
         pending[name] = nil
-        if copyLinkAfterUpload { Clipboard.put(link: result.url) }
+        switch kind {
+        case .screenshot:
+            if copyLinkAfterUpload { Clipboard.put(link: result.url) }
+        case .video:
+            if copyLinkVideo { Clipboard.put(link: result.url) }
+            if notifyVideo { Notifier.shared.uploaded(result.url, linkCopied: copyLinkVideo) }
+        }
     }
 
     /// After the last step only a network change retries.
@@ -267,6 +319,7 @@ final class AppModel {
         guard let change = captureState.set(kind, on: on, current: current, inbox: folders.inbox) else { return }
         SystemPreferences.apply(change)
         UserDefaults.standard.set(try? JSONEncoder().encode(captureState), forKey: "captureState")
+        if kind == .video, on, notifyVideo { Notifier.shared.requestPermission() }
     }
 
     func dismissProblem() {

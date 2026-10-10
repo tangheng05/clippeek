@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make()
+        Notifier.shared.start()
         model.start()
         let statusItem = StatusItemController(model: model)
         self.statusItem = statusItem
