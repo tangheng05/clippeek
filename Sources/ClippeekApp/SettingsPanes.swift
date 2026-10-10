@@ -37,6 +37,8 @@ enum SettingsTabs {
             case .recordings: host(RecordingsPane(model: model))
             case .server: host(ServerPane(model: model))
             }
+            // The toolbar tabs title the window after the selected pane's controller.
+            hosting.title = pane.title
             let item = NSTabViewItem(viewController: hosting)
             item.label = pane.title
             item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
@@ -110,6 +112,9 @@ struct GeneralPane: View {
     var body: some View {
         Form {
             OpenAtLoginToggle(status: loginStatus)
+            if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+                LabeledContent("Version", value: version)
+            }
         }
         .pane()
     }
