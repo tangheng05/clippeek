@@ -11,6 +11,9 @@ import UniformTypeIdentifiers
         #expect(Inbox.kind(of: "a.JPG") == .screenshot)
         #expect(Inbox.kind(of: "Screen Recording 2026-10-10 at 12.30.00\u{202F}PM.mov") == .video)
         #expect(Inbox.kind(of: "clip.mp4") == .video)
+        #expect(Inbox.kind(of: "a.pdf") == .screenshot)
+        #expect(Inbox.kind(of: "a.gif") == .screenshot)
+        #expect(Inbox.kind(of: "a.BMP") == .screenshot)
         #expect(Inbox.kind(of: "notes.txt") == nil)
         #expect(Inbox.kind(of: ".DS_Store") == nil)
     }
@@ -27,9 +30,28 @@ import UniformTypeIdentifiers
     }
 
     @Test func screenshotsGoBeforeVideos() {
-        #expect(Inbox.next(in: ["a.mov", "c.png", "b.png"]) == "b.png")
-        #expect(Inbox.next(in: ["b.mov", "a.mov"]) == "a.mov")
+        let date = Date(timeIntervalSince1970: 1000)
+        #expect(Inbox.next(in: [("a.mov", date), ("c.png", date), ("b.png", date)]) == "b.png")
+        #expect(Inbox.next(in: [("b.mov", date), ("a.mov", date)]) == "a.mov")
+        #expect(Inbox.next(in: [("a.mov", date), ("b.png", date.addingTimeInterval(60))]) == "b.png")
         #expect(Inbox.next(in: []) == nil)
+    }
+
+    /// "1.05" sorts before "9.15" by name, though it was taken hours later.
+    @Test func oldestGoesFirst() {
+        let morning = Date(timeIntervalSince1970: 1000)
+        var waiting = [
+            ("Screenshot 2026-10-10 at 1.05.00\u{202F}PM.png", morning.addingTimeInterval(4 * 3600)),
+            ("Screenshot 2026-10-10 at 10.30.00\u{202F}AM.png", morning.addingTimeInterval(3600)),
+            ("Screenshot 2026-10-10 at 9.15.00\u{202F}AM.png", morning),
+        ]
+        var order: [String] = []
+        while let next = Inbox.next(in: waiting.map { (name: $0.0, created: $0.1) }) {
+            order.append(next)
+            waiting.removeAll { $0.0 == next }
+        }
+        #expect(order == ["Screenshot 2026-10-10 at 9.15.00\u{202F}AM.png", "Screenshot 2026-10-10 at 10.30.00\u{202F}AM.png",
+                          "Screenshot 2026-10-10 at 1.05.00\u{202F}PM.png"])
     }
 
     @Test func onlyRecentGoToClipboard() {
@@ -43,6 +65,9 @@ import UniformTypeIdentifiers
         #expect(Inbox.mimeType(for: "a.JPG") == "image/jpeg")
         #expect(Inbox.mimeType(for: "a.mov") == "video/quicktime")
         #expect(Inbox.mimeType(for: "a.mp4") == "video/mp4")
+        #expect(Inbox.mimeType(for: "a.pdf") == "application/pdf")
+        #expect(Inbox.mimeType(for: "a.gif") == "image/gif")
+        #expect(Inbox.mimeType(for: "a.bmp") == "image/bmp")
     }
 
     @Test func thumbnailIsSmall() throws {

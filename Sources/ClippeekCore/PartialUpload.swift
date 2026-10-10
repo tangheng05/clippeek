@@ -34,6 +34,8 @@ public enum PartialUpload {
         request.setValue(range.upperBound == total ? "true" : "false", forHTTPHeaderField: "x-zipline-p-lastchunk")
         if let partialToken { request.setValue(partialToken, forHTTPHeaderField: "x-zipline-p-token") }
         if expiry != .never { request.setValue(expiry.rawValue, forHTTPHeaderField: "X-Zipline-Deletes-At") }
+        // Recordings can be gigabytes; they wait for Low Data Mode to end.
+        request.allowsConstrainedNetworkAccess = false
         request.httpBody = multipart.body(field: "file", filename: filename, mimeType: mimeType, data: chunk)
         return request
     }
@@ -47,13 +49,9 @@ public enum PartialUpload {
             let files: [File]?
             let partialToken: String?
             let deletesAt: String?
-            let code: Int?
         }
-        let response = try? JSONDecoder().decode(Response.self, from: data)
-        // Zipline's error 5001 means the whole file is over its max file size.
-        if response?.code == 5001 { throw ZiplineError.tooLarge }
-        try Zipline.check(status)
-        guard let response else { throw ZiplineError.badResponse }
+        try Zipline.check(status, body: data)
+        guard let response = try? JSONDecoder().decode(Response.self, from: data) else { throw ZiplineError.badResponse }
         if let file = response.files?.first {
             return .done(UploadResult(id: file.name ?? file.url.lastPathComponent, url: file.url,
                                       deletesAt: response.deletesAt.flatMap(Zipline.date)))
@@ -79,6 +77,21 @@ public enum PartialUpload {
         case "FAILED": return .failed
         default: return .processing
         }
+    }
+
+    /// Recordings Zipline accepted but hasn't confirmed storing, by inbox name, so a relaunch checks
+    /// on them instead of sending them again.
+    public static func encoded(_ unconfirmed: [String: UploadResult]) -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return (try? encoder.encode(unconfirmed)) ?? Data()
+    }
+
+    public static func unconfirmed(from data: Data?) -> [String: UploadResult] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let data, let unconfirmed = try? decoder.decode([String: UploadResult].self, from: data) else { return [:] }
+        return unconfirmed
     }
 
     /// Header values must be ASCII; Zipline URL-decodes this one.

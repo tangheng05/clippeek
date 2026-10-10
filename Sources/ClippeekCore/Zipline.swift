@@ -22,7 +22,7 @@ public enum Expiry: String, CaseIterable, Codable, Sendable {
     case never, oneDay = "1d", sevenDays = "7d", thirtyDays = "30d"
 }
 
-public struct UploadResult: Equatable, Sendable {
+public struct UploadResult: Codable, Equatable, Sendable {
     public var id: String
     public var url: URL
     public var deletesAt: Date?
@@ -35,7 +35,7 @@ public struct UploadResult: Equatable, Sendable {
 }
 
 public enum ZiplineError: Error, Equatable, Sendable {
-    case unauthorized, tooLarge, server(Int), badResponse, emptyFile
+    case unauthorized, tooLarge, quotaFull, tooManyUploads, rejected(String?), server(Int), badResponse, emptyFile
 }
 
 public enum Zipline {
@@ -58,7 +58,7 @@ public enum Zipline {
     }
 
     public static func parseUpload(status: Int, data: Data) throws -> UploadResult {
-        try check(status)
+        try check(status, body: data)
         struct Response: Decodable {
             struct File: Decodable {
                 let id: String
@@ -73,13 +73,29 @@ public enum Zipline {
         return UploadResult(id: file.id, url: file.url, deletesAt: response.deletesAt.flatMap(date))
     }
 
-    public static func check(_ status: Int) throws {
-        switch status {
-        case 200..<300: return
-        case 401, 403: throw ZiplineError.unauthorized
-        case 413: throw ZiplineError.tooLarge
+    /// Zipline's error bodies carry a code: 1xxx come with 400, 5xxx with 413.
+    public static func check(_ status: Int, body: Data = Data()) throws {
+        guard !(200..<300).contains(status) else { return }
+        struct Failure: Decodable {
+            let error: String?
+            let code: Int?
+        }
+        let failure = try? JSONDecoder().decode(Failure.self, from: body)
+        switch (status, failure?.code) {
+        case (_, 5002): throw ZiplineError.quotaFull
+        case (_, 5001), (413, _): throw ZiplineError.tooLarge
+        case (401, _), (403, _): throw ZiplineError.unauthorized
+        // E1003: too many unfinished chunked uploads; they time out after 30 minutes.
+        case (400, 1003): throw ZiplineError.tooManyUploads
+        case (400, _): throw ZiplineError.rejected(failure?.error.flatMap(reason))
         default: throw ZiplineError.server(status)
         }
+    }
+
+    /// "E1004: Invalid filename" reads as "Invalid filename".
+    private static func reason(_ error: String) -> String? {
+        let text = error.replacing(/^E\d+:\s*/, with: "").trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
     }
 
     private static func authorized(_ url: URL, token: String, method: String) -> URLRequest {
