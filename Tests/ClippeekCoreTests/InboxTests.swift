@@ -61,4 +61,12 @@ import UniformTypeIdentifiers
         #expect(size[kCGImagePropertyPixelWidth] as? Int == 256)
         #expect(size[kCGImagePropertyPixelHeight] as? Int == 128)
     }
+
+    /// A file of a kind that isn't switched on goes back to the user instead of uploading.
+    @Test func uploadsOnlyKindsBeingSent() {
+        #expect(Inbox.shouldUpload("a.mov", capturing: [.screenshot, .video]))
+        #expect(!Inbox.shouldUpload("a.mov", capturing: [.screenshot]))
+        #expect(Inbox.shouldUpload("a.png", capturing: [.screenshot]))
+        #expect(!Inbox.shouldUpload("a.png", capturing: []))
+    }
 }

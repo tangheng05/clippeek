@@ -25,6 +25,7 @@ public struct ZiplineClient: Sendable {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         let total = Int(try handle.seekToEnd())
+        guard total > 0 else { throw ZiplineError.emptyFile }
         var partialToken: String?
         for range in PartialUpload.ranges(total: total, chunkSize: chunkSize) {
             try handle.seek(toOffset: UInt64(range.lowerBound))
@@ -44,6 +45,26 @@ public struct ZiplineClient: Sendable {
             }
         }
         throw ZiplineError.badResponse
+    }
+
+    /// Waits for Zipline to finish storing a chunked upload: true when stored, false when it failed,
+    /// nil when it's still not done after the last delay.
+    public func waitUntilStored(filename: String, delays: [Double] = [1, 2, 4, 8, 15, 30, 60, 120]) async -> Bool? {
+        var request = URLRequest(url: server.baseURL.appending(path: "api/user/files/incomplete"))
+        request.setValue(token, forHTTPHeaderField: "Authorization")
+        for delay in delays {
+            if let (body, response) = try? await session.data(for: request) {
+                // Servers without this endpoint can't confirm, so the upload counts as done.
+                if (response as? HTTPURLResponse)?.statusCode == 404 { return true }
+                switch PartialUpload.status(of: filename, in: body) {
+                case .complete: return true
+                case .failed: return false
+                case .processing, nil: break
+                }
+            }
+            try? await Task.sleep(for: .seconds(delay))
+        }
+        return nil
     }
 
     public func delete(id: String) async throws {

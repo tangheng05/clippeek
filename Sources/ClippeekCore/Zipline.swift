@@ -35,7 +35,7 @@ public struct UploadResult: Equatable, Sendable {
 }
 
 public enum ZiplineError: Error, Equatable, Sendable {
-    case unauthorized, tooLarge, server(Int), badResponse
+    case unauthorized, tooLarge, server(Int), badResponse, emptyFile
 }
 
 public enum Zipline {

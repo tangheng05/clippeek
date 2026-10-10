@@ -12,7 +12,7 @@ import Testing
         var state = CaptureState()
         let change = state.set(.screenshot, on: true, current: original, inbox: inbox)
         #expect(change == PreferenceChange(
-            keys: ["location-screenshot", "target-screenshot", "location", "target", "show-thumbnail"],
+            keys: ["location-screenshot", "target-screenshot", "show-thumbnail", "location", "target"],
             values: ["location-screenshot": .string("/tmp/inbox"), "target-screenshot": .string("file"),
                      "location": .string("/tmp/inbox"), "target": .string("file"), "show-thumbnail": .bool(false)]))
         #expect(state.isOn(.screenshot))
@@ -44,7 +44,7 @@ import Testing
             let first = state.set(order[0], on: false, current: [:], inbox: inbox)
             #expect(first?.keys.contains("show-thumbnail") == false)
             let last = state.set(order[1], on: false, current: [:], inbox: inbox)
-            #expect(last?.keys.last == "show-thumbnail")
+            #expect(last?.keys.contains("show-thumbnail") == true)
             #expect(last?.values["show-thumbnail"] == .bool(true))
         }
         var single = CaptureState()
@@ -57,9 +57,9 @@ import Testing
         #expect(state.reapply(inbox: inbox) == nil)
         _ = state.set(.video, on: true, current: [:], inbox: inbox)
         #expect(state.reapply(inbox: inbox) == PreferenceChange(
-            keys: ["show-thumbnail", "location-screenrecording", "target-screenrecording"],
-            values: ["show-thumbnail": .bool(false), "location-screenrecording": .string("/tmp/inbox"),
-                     "target-screenrecording": .string("file")]))
+            keys: ["show-thumbnail", "location", "target", "location-screenrecording", "target-screenrecording"],
+            values: ["show-thumbnail": .bool(false), "location": .string("/tmp/inbox"), "target": .string("file"),
+                     "location-screenrecording": .string("/tmp/inbox"), "target-screenrecording": .string("file")]))
     }
 
     @Test func roundTripsThroughJSON() throws {
@@ -91,5 +91,39 @@ import Testing
         SystemPreferences.apply(PreferenceChange(keys: ["location-screenrecording", "show-thumbnail"], values: [:]),
                                 domain: domain)
         #expect(SystemPreferences.read(["location-screenrecording", "show-thumbnail"], domain: domain).isEmpty)
+    }
+
+    /// Before macOS 27 one `location`/`target` covers screenshots and recordings alike.
+    @Test func olderKeysFollowEitherKind() {
+        var state = CaptureState()
+        let on = state.set(.video, on: true, current: ["location": .string("/Users/me/Shots")], inbox: inbox)
+        #expect(on?.values["location"] == .string("/tmp/inbox"))
+        #expect(on?.values["target"] == .string("file"))
+        _ = state.set(.screenshot, on: true, current: [:], inbox: inbox)
+        #expect(state.set(.video, on: false, current: [:], inbox: inbox)?.keys.contains("location") == false)
+        let off = state.set(.screenshot, on: false, current: [:], inbox: inbox)
+        #expect(off?.values["location"] == .string("/Users/me/Shots"))
+        #expect(off?.keys.contains("target") == true)
+    }
+
+    /// The first recordings build kept `location`/`target` with screenshots and called the shared part `previousThumbnail`.
+    @Test func migratesEarlierCaptureState() throws {
+        let json = #"{"previous":{"screenshot":{"target-screenshot":{"string":{"_0":"file"}},"location":{"string":{"_0":"/Users/me/Desktop"}}}},"previousThumbnail":{"show-thumbnail":{"bool":{"_0":true}}}}"#
+        var state = try JSONDecoder().decode(CaptureState.self, from: Data(json.utf8))
+        #expect(state.isOn(.screenshot))
+        #expect(state.set(.screenshot, on: false, current: [:], inbox: inbox)?.values ==
+                ["target-screenshot": .string("file"), "location": .string("/Users/me/Desktop"), "show-thumbnail": .bool(true)])
+    }
+
+    /// A file of a kind that isn't being sent goes back where the user keeps those.
+    @Test func userFolderForAKindThatIsOff() {
+        let home = URL(fileURLWithPath: "/Users/me")
+        var state = CaptureState()
+        _ = state.set(.screenshot, on: true, current: ["location": .string("/Users/me/Shots")], inbox: inbox)
+        #expect(state.userFolder(for: .video, current: ["location-screenrecording": .string("/Users/me/Movies")],
+                                 inbox: inbox, home: home).path == "/Users/me/Movies")
+        #expect(state.userFolder(for: .video, current: ["location": .string("/tmp/inbox")], inbox: inbox, home: home).path ==
+                "/Users/me/Shots")
+        #expect(CaptureState().userFolder(for: .video, current: [:], inbox: inbox, home: home).path == "/Users/me/Desktop")
     }
 }

@@ -107,4 +107,48 @@ final class StubProtocol: URLProtocol {
             try await client.uploadFile(at: file, filename: "a.mov", expiry: .never, chunkSize: 4)
         }
     }
+
+    func statuses(_ list: [String]) -> (URLRequest) -> (Int, Data) {
+        { _ in
+            let status = list[min(StubProtocol.requests.count, list.count) - 1]
+            return (200, Data(#"[{"status":"\#(status)","metadata":{"file":{"filename":"v.mov","type":"video/quicktime","id":"r"}}}]"#.utf8))
+        }
+    }
+
+    @Test func waitsUntilStored() async {
+        StubProtocol.requests = []
+        StubProtocol.handler = statuses(["PENDING", "PROCESSING", "COMPLETE"])
+        #expect(await client.waitUntilStored(filename: "v.mov", delays: [0, 0, 0, 0]) == true)
+        #expect(StubProtocol.requests.count == 3)
+        #expect(StubProtocol.requests.last?.url?.path() == "/api/user/files/incomplete")
+        #expect(StubProtocol.requests.last?.value(forHTTPHeaderField: "Authorization") == "secret")
+    }
+
+    @Test func reportsFailedProcessing() async {
+        StubProtocol.requests = []
+        StubProtocol.handler = statuses(["PROCESSING", "FAILED"])
+        #expect(await client.waitUntilStored(filename: "v.mov", delays: [0, 0, 0]) == false)
+    }
+
+    @Test func givesUpWhileStillProcessing() async {
+        StubProtocol.requests = []
+        StubProtocol.handler = statuses(["PROCESSING"])
+        #expect(await client.waitUntilStored(filename: "v.mov", delays: [0, 0]) == nil)
+    }
+
+    /// Servers without this endpoint can't confirm, so the upload counts as done.
+    @Test func olderServerCountsAsStored() async {
+        StubProtocol.handler = { _ in (404, Data()) }
+        #expect(await client.waitUntilStored(filename: "v.mov", delays: [0]) == true)
+    }
+
+    @Test func emptyFileThrows() async throws {
+        StubProtocol.requests = []
+        let file = FileManager.default.temporaryDirectory.appending(path: "clippeek-\(UUID().uuidString).mov")
+        try Data().write(to: file)
+        await #expect(throws: ZiplineError.emptyFile) {
+            try await client.uploadFile(at: file, filename: "a.mov", expiry: .never)
+        }
+        #expect(StubProtocol.requests.isEmpty)
+    }
 }

@@ -75,4 +75,18 @@ import Testing
         #expect(throws: ZiplineError.badResponse) { try PartialUpload.parse(status: 200, data: Data("<html></html>".utf8)) }
         #expect(throws: ZiplineError.badResponse) { try PartialUpload.parse(status: 200, data: Data(#"{"files":[]}"#.utf8)) }
     }
+
+    /// From `/api/user/files/incomplete`, newest first.
+    @Test func readsProcessingStatus() throws {
+        let json = Data(#"""
+        [{"status":"PROCESSING","metadata":{"file":{"filename":"Ab3.mov","type":"video/quicktime","id":"real1"}}},
+         {"status":"COMPLETE","metadata":{"file":{"filename":"Old.mov","type":"video/quicktime","id":"real0"}}},
+         {"status":"FAILED","metadata":{"file":{"filename":"Bad.mov","type":"video/quicktime","id":"real2"}}}]
+        """#.utf8)
+        #expect(PartialUpload.status(of: "Ab3.mov", in: json) == .processing)
+        #expect(PartialUpload.status(of: "Old.mov", in: json) == .complete)
+        #expect(PartialUpload.status(of: "Bad.mov", in: json) == .failed)
+        #expect(PartialUpload.status(of: "Missing.mov", in: json) == nil)
+        #expect(PartialUpload.status(of: "Ab3.mov", in: Data("<html>".utf8)) == nil)
+    }
 }

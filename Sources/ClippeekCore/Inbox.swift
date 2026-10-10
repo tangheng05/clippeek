@@ -20,6 +20,11 @@ public enum Inbox {
         listing.filter { kind(of: $0) != nil && !handled.contains($0) }.sorted()
     }
 
+    /// A file of a kind that isn't switched on goes back to the user instead of uploading.
+    public static func shouldUpload(_ name: String, capturing: Set<CaptureKind>) -> Bool {
+        kind(of: name).map(capturing.contains) ?? false
+    }
+
     /// Screenshots first, so a long video never holds one up.
     public static func next(in waiting: [String]) -> String? {
         let sorted = waiting.sorted()

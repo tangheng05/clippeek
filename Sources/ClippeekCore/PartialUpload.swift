@@ -10,6 +10,11 @@ public enum PartialUpload {
         case done(UploadResult)
     }
 
+    /// Zipline finishes a chunked upload in the background and reports its progress.
+    public enum ProcessingStatus: Equatable, Sendable {
+        case processing, complete, failed
+    }
+
     public static func ranges(total: Int, chunkSize: Int = chunkSize) -> [Range<Int>] {
         guard total > 0 else { return [] }
         return stride(from: 0, to: total, by: chunkSize).map { $0..<min($0 + chunkSize, total) }
@@ -55,6 +60,25 @@ public enum PartialUpload {
         }
         guard let token = response.partialToken else { throw ZiplineError.badResponse }
         return .next(token: token)
+    }
+
+    /// Reads `/api/user/files/incomplete` for the stored file name; nil when it isn't listed.
+    public static func status(of filename: String, in data: Data) -> ProcessingStatus? {
+        struct Record: Decodable {
+            struct Metadata: Decodable {
+                struct File: Decodable { let filename: String }
+                let file: File
+            }
+            let status: String
+            let metadata: Metadata
+        }
+        guard let records = try? JSONDecoder().decode([Record].self, from: data),
+              let record = records.first(where: { $0.metadata.file.filename == filename }) else { return nil }
+        switch record.status {
+        case "COMPLETE": return .complete
+        case "FAILED": return .failed
+        default: return .processing
+        }
     }
 
     /// Header values must be ASCII; Zipline URL-decodes this one.

@@ -50,20 +50,20 @@ public enum SystemPreferences {
 
 /// What clippeek changed in the system capture settings, so it can put them back.
 public struct CaptureState: Codable, Equatable, Sendable {
-    public static let thumbnailKey = "show-thumbnail"
-    public static let allKeys = keys(for: .screenshot) + keys(for: .video) + [thumbnailKey]
+    /// Before macOS 27, `location` and `target` cover both kinds; the floating thumbnail always does.
+    public static let sharedKeys = ["show-thumbnail", "location", "target"]
+    public static let allKeys = keys(for: .screenshot) + keys(for: .video) + sharedKeys
 
     /// The user's values from before each kind was turned on; a kind is on while it has an entry.
     private var previous: [CaptureKind: Preferences] = [:]
-    /// `show-thumbnail` from before the first kind was turned on; the floating thumbnail delays saving.
-    private var previousThumbnail: Preferences = [:]
+    /// The shared keys as they were before the first kind was turned on.
+    private var previousShared: Preferences = [:]
 
     public init() {}
 
-    /// macOS 27 reads the `-screenshot`/`-screenrecording` keys; older versions `location` and `target`.
     public static func keys(for kind: CaptureKind) -> [String] {
         switch kind {
-        case .screenshot: ["location-screenshot", "target-screenshot", "location", "target"]
+        case .screenshot: ["location-screenshot", "target-screenshot"]
         case .video: ["location-screenrecording", "target-screenrecording"]
         }
     }
@@ -77,17 +77,17 @@ public struct CaptureState: Codable, Equatable, Sendable {
         guard on != isOn(kind) else { return nil }
         let kindKeys = Self.keys(for: kind)
         if on {
-            if previous.isEmpty { previousThumbnail = current.filter { $0.key == Self.thumbnailKey } }
+            if previous.isEmpty { previousShared = current.filter { Self.sharedKeys.contains($0.key) } }
             previous[kind] = current.filter { kindKeys.contains($0.key) }
-            return PreferenceChange(keys: kindKeys + [Self.thumbnailKey],
-                                    values: Self.capturing(kind, into: inbox).merging([Self.thumbnailKey: .bool(false)]) { $1 })
+            return PreferenceChange(keys: kindKeys + Self.sharedKeys,
+                                    values: Self.capturing(kind, into: inbox).merging(Self.shared(into: inbox)) { $1 })
         }
         var keys = kindKeys
         var values = previous.removeValue(forKey: kind) ?? [:]
         if previous.isEmpty {
-            keys.append(Self.thumbnailKey)
-            values.merge(previousThumbnail) { $1 }
-            previousThumbnail = [:]
+            keys += Self.sharedKeys
+            values.merge(previousShared) { $1 }
+            previousShared = [:]
         }
         return PreferenceChange(keys: keys, values: values)
     }
@@ -95,12 +95,21 @@ public struct CaptureState: Codable, Equatable, Sendable {
     /// Puts the inbox back for every kind that's on, e.g. after something else changed the location.
     public func reapply(inbox: URL) -> PreferenceChange? {
         guard !previous.isEmpty else { return nil }
-        var change = PreferenceChange(keys: [Self.thumbnailKey], values: [Self.thumbnailKey: .bool(false)])
+        var change = PreferenceChange(keys: Self.sharedKeys, values: Self.shared(into: inbox))
         for kind in CaptureKind.allCases where isOn(kind) {
             change.keys += Self.keys(for: kind)
             change.values.merge(Self.capturing(kind, into: inbox)) { $1 }
         }
         return change
+    }
+
+    /// Where a file of a kind that isn't being sent belongs: the user's own folder for it, else the Desktop.
+    public func userFolder(for kind: CaptureKind, current: Preferences, inbox: URL, home: URL) -> URL {
+        let locationKey = kind == .screenshot ? "location-screenshot" : "location-screenrecording"
+        for value in [current[locationKey], previousShared["location"], current["location"]] {
+            if case .string(let path)? = value, path != inbox.path { return URL(fileURLWithPath: path) }
+        }
+        return home.appending(path: "Desktop")
     }
 
     /// The build before recordings saved only the screenshot settings, as `previousScreenshotSettings`.
@@ -113,17 +122,46 @@ public struct CaptureState: Codable, Equatable, Sendable {
         var screenshot: Preferences = [:]
         screenshot["location-screenshot"] = legacy.location.map(PreferenceValue.string)
         screenshot["target-screenshot"] = legacy.target.map(PreferenceValue.string)
-        screenshot["location"] = legacy.legacyLocation.map(PreferenceValue.string)
-        screenshot["target"] = legacy.legacyTarget.map(PreferenceValue.string)
         var state = CaptureState()
         state.previous[.screenshot] = screenshot
-        state.previousThumbnail = legacy.showThumbnail.map { [thumbnailKey: .bool($0)] } ?? [:]
+        state.previousShared["location"] = legacy.legacyLocation.map(PreferenceValue.string)
+        state.previousShared["target"] = legacy.legacyTarget.map(PreferenceValue.string)
+        state.previousShared["show-thumbnail"] = legacy.showThumbnail.map(PreferenceValue.bool)
         return state
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case previous, previousShared, previousThumbnail
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        previous = try container.decodeIfPresent([CaptureKind: Preferences].self, forKey: .previous) ?? [:]
+        if let shared = try container.decodeIfPresent(Preferences.self, forKey: .previousShared) {
+            previousShared = shared
+        } else {
+            // The first recordings build kept `location`/`target` with screenshots.
+            previousShared = try container.decodeIfPresent(Preferences.self, forKey: .previousThumbnail) ?? [:]
+            for key in ["location", "target"] {
+                if let value = previous[.screenshot]?.removeValue(forKey: key) { previousShared[key] = value }
+            }
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(previous, forKey: .previous)
+        try container.encode(previousShared, forKey: .previousShared)
     }
 
     private static func capturing(_ kind: CaptureKind, into inbox: URL) -> Preferences {
         Dictionary(uniqueKeysWithValues: keys(for: kind).map { key in
             (key, key.hasPrefix("location") ? .string(inbox.path) : .string("file"))
         })
+    }
+
+    /// The floating thumbnail delays saving by about 5 s, so it's turned off.
+    private static func shared(into inbox: URL) -> Preferences {
+        ["show-thumbnail": .bool(false), "location": .string(inbox.path), "target": .string("file")]
     }
 }

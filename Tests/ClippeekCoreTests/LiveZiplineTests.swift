@@ -42,13 +42,18 @@ struct LiveZiplineTests {
         defer { try? FileManager.default.removeItem(at: file) }
         let result = try await client.uploadFile(at: file, filename: "clippeek-live-test.mov", expiry: .oneDay,
                                                  chunkSize: 1024 * 1024)
-        // Zipline finishes a chunked upload in the background.
-        var downloaded = Data()
-        for _ in 0..<20 where downloaded != data {
-            try await Task.sleep(for: .milliseconds(500))
-            downloaded = (try? await URLSession.shared.data(from: result.url).0) ?? Data()
-        }
+        #expect(await client.waitUntilStored(filename: result.id) == true)
+        let (downloaded, _) = try await URLSession.shared.data(from: result.url)
         #expect(downloaded == data)
+        // Chunked uploads are deleted by short name, so check the lookup really finds the file.
+        #expect(try await status(of: result.id, client: client) == 200)
         try await client.delete(id: result.id)
+        #expect(try await status(of: result.id, client: client) == 404)
+    }
+
+    func status(of id: String, client: ZiplineClient) async throws -> Int? {
+        var request = URLRequest(url: client.server.fileURL(id: id))
+        request.setValue(client.token, forHTTPHeaderField: "Authorization")
+        return (try await URLSession.shared.data(for: request).1 as? HTTPURLResponse)?.statusCode
     }
 }
