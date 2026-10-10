@@ -13,7 +13,6 @@ struct HistoryView: View {
     /// False while closed, so nothing inside keeps re-rendering in the background.
     let visible: Bool
     var openSettings: (SettingsTabs.Pane) -> Void = { _ in }
-    var close: () -> Void = {}
     var onResize: ((CGFloat) -> Void)?
 
     @State private var copying: String?
@@ -239,7 +238,7 @@ struct HistoryView: View {
             if ok {
                 confirm(CopyFeedback(id: item.id, text: "Copied", symbol: "checkmark"))
             } else {
-                confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"), thenClose: false)
+                confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"))
             }
         }
     }
@@ -262,18 +261,17 @@ struct HistoryView: View {
             copying = nil
             switch result {
             case .copied: confirm(CopyFeedback(id: item.id, text: "Text Copied", symbol: "text.viewfinder"))
-            case .none: confirm(CopyFeedback(id: item.id, text: "No Text Found", symbol: "magnifyingglass"), thenClose: false)
-            case .failed: confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"), thenClose: false)
+            case .none: confirm(CopyFeedback(id: item.id, text: "No Text Found", symbol: "magnifyingglass"))
+            case .failed: confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"))
             }
         }
     }
 
-    /// Shows the confirmation briefly, then gets out of the way so the user can paste.
-    private func confirm(_ value: CopyFeedback, thenClose: Bool = true) {
+    /// Shows the confirmation briefly; the popover stays open until the user clicks elsewhere.
+    private func confirm(_ value: CopyFeedback) {
         withAnimation(.easeOut(duration: 0.15)) { copied = value }
         Task {
-            try? await Task.sleep(for: .milliseconds(thenClose ? 600 : 1500))
-            if thenClose { close() }
+            try? await Task.sleep(for: .milliseconds(1200))
             withAnimation(.easeOut(duration: 0.15)) { if copied == value { copied = nil } }
         }
     }

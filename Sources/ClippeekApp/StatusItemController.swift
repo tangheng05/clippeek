@@ -208,7 +208,6 @@ final class StatusItemController {
         guard hosting.rootView.visible != visible else { return }
         hosting.rootView = HistoryView(model: model, visible: visible,
                                        openSettings: { [weak self] pane in self?.openSettings(pane) },
-                                       close: { [weak self] in self?.popover.performClose(nil) },
                                        // Resizing inside SwiftUI's layout pass makes AppKit lay out re-entrantly.
                                        onResize: { [weak self] height in
                                            DispatchQueue.main.async { self?.resizePopover(height: height) }
