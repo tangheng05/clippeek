@@ -29,9 +29,30 @@ import Testing
         #expect(History.decode(history.encoded()) == history)
     }
 
-    @Test func corruptHistoryIsEmpty() {
-        #expect(History.decode(nil).items.isEmpty)
-        #expect(History.decode(Data("{not json".utf8)).items.isEmpty)
+    @Test func corruptHistoryIsNil() {
+        #expect(History.decode(Data("{not json".utf8)) == nil)
+        #expect(History.decode(Data(#"{"items":3}"#.utf8)) == nil)
+    }
+
+    /// An item this build can't read, e.g. a kind from a newer one, doesn't take the rest with it.
+    @Test func skipsBadItems() {
+        let json = #"{"items":[{"id":"a","url":"https://z.io/u/a.png","created":"2026-10-09T10:00:00Z","thumbnail":"a.png"},"#
+            + #"{"id":"b","url":"https://z.io/u/b.gif","created":"2026-10-09T10:00:00Z","thumbnail":"b.png","kind":"gif"}]}"#
+        #expect(History.decode(Data(json.utf8))?.items.map(\.id) == ["a"])
+    }
+
+    @Test func loadKeepsADamagedFile() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "history.json")
+        #expect(History.load(from: file).items.isEmpty)
+        try Data("{not json".utf8).write(to: file)
+        #expect(History.load(from: file).items.isEmpty)
+        #expect(try Data(contentsOf: folder.appending(path: "history.json.bad")) == Data("{not json".utf8))
+        let history = History(items: [item("a")])
+        try history.encoded().write(to: file)
+        #expect(History.load(from: file) == history)
     }
 
     @Test func backoffSteps() {
@@ -43,13 +64,13 @@ import Testing
     /// history.json written before videos existed has no `kind`.
     @Test func decodesItemsWithoutKind() {
         let json = #"{"items":[{"id":"a","url":"https://z.io/u/a.png","created":"2026-10-09T10:00:00Z","thumbnail":"a.png"}]}"#
-        #expect(History.decode(Data(json.utf8)).items.first?.kind == .screenshot)
+        #expect(History.decode(Data(json.utf8))?.items.first?.kind == .screenshot)
     }
 
     @Test func keepsVideoKind() {
         var video = item("v")
         video.kind = .video
         let history = History(items: [video])
-        #expect(History.decode(history.encoded()).items.first?.kind == .video)
+        #expect(History.decode(history.encoded())?.items.first?.kind == .video)
     }
 }
