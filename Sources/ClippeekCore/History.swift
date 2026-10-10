@@ -9,14 +9,18 @@ public struct HistoryItem: Codable, Equatable, Identifiable, Sendable {
     /// File name in the thumbnails folder.
     public var thumbnail: String
     public var kind: CaptureKind
+    /// Where a copy stays on this Mac, if one does.
+    public var localFile: URL?
 
-    public init(id: String, url: URL, created: Date, deletesAt: Date?, thumbnail: String, kind: CaptureKind = .screenshot) {
+    public init(id: String, url: URL, created: Date, deletesAt: Date?, thumbnail: String, kind: CaptureKind = .screenshot,
+                localFile: URL? = nil) {
         self.id = id
         self.url = url
         self.created = created
         self.deletesAt = deletesAt
         self.thumbnail = thumbnail
         self.kind = kind
+        self.localFile = localFile
     }
 
     public init(from decoder: any Decoder) throws {
@@ -27,6 +31,7 @@ public struct HistoryItem: Codable, Equatable, Identifiable, Sendable {
         deletesAt = try container.decodeIfPresent(Date.self, forKey: .deletesAt)
         thumbnail = try container.decode(String.self, forKey: .thumbnail)
         kind = try container.decodeIfPresent(CaptureKind.self, forKey: .kind) ?? .screenshot
+        localFile = try container.decodeIfPresent(URL.self, forKey: .localFile)
     }
 
     /// "6d left", rounded down; nil when Zipline keeps the file.

@@ -21,6 +21,7 @@ final class StatusItemController {
     private var riseTask: Task<Void, Never>?
     private var doneTask: Task<Void, Never>?
     private let hotKey = HotKey()
+    private var dropTarget: DropTarget?
 
     init(model: AppModel) {
         self.model = model
@@ -41,6 +42,10 @@ final class StatusItemController {
                 self?.stopWatchingOutsideClicks()
                 self?.setPopoverContent(visible: false)
             }
+        }
+        if let button = item.button, let window = button.window {
+            dropTarget = DropTarget(window: window, onDrop: { [weak self] files in self?.model.send(files) },
+                                    onHover: { button.highlight($0) })
         }
         HotKey.action = { [weak self] in
             guard self?.model.recordingShortcut == false else { return }
@@ -76,7 +81,7 @@ final class StatusItemController {
         guard let button = item.button else { return }
         let failed = model.pending.values.contains { if case .failed = $0 { true } else { false } }
         problem = model.problem != nil || failed
-        let nowUploading = model.videoProgress != nil || model.pending.values.contains(.uploading)
+        let nowUploading = model.videoProgress != nil || model.sending > 0 || model.pending.values.contains(.uploading)
         if nowUploading && !uploading { playRise() }
         uploading = nowUploading
         if let finished = model.lastFinished, finished != lastFinished {

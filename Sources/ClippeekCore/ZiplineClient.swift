@@ -12,11 +12,30 @@ public struct ZiplineClient: Sendable {
         self.session = session
     }
 
-    public func upload(_ data: Data, filename: String, expiry: Expiry) async throws -> UploadResult {
+    public func upload(_ data: Data, filename: String, expiry: Expiry, compression: ImageCompression? = nil) async throws -> UploadResult {
         let request = Zipline.uploadRequest(server: server, token: token, file: data, filename: filename,
-                                            mimeType: Inbox.mimeType(for: filename), expiry: expiry)
+                                            mimeType: Inbox.mimeType(for: filename), expiry: expiry, compression: compression)
         let (body, response) = try await session.data(for: request)
-        return try Zipline.parseUpload(status: (response as? HTTPURLResponse)?.statusCode ?? 0, data: body)
+        do {
+            return try Zipline.parseUpload(status: (response as? HTTPURLResponse)?.statusCode ?? 0, data: body)
+        } catch ZiplineError.rejected(let reason) where compression != nil && reason?.lowercased().contains("compression") == true {
+            // A server without that encoder still gets the file, just uncompressed.
+            return try await upload(data, filename: filename, expiry: expiry)
+        }
+    }
+
+    /// Any file: small ones in one request, videos and large files in chunks, waiting until Zipline has stored them.
+    public func send(_ file: URL, expiry: Expiry, compression: ImageCompression? = nil,
+                     progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> UploadResult {
+        let name = file.lastPathComponent
+        let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard Inbox.kind(of: name) == .video || size > PartialUpload.chunkSize else {
+            let image = Inbox.kind(of: name) == .screenshot
+            return try await upload(try Data(contentsOf: file), filename: name, expiry: expiry, compression: image ? compression : nil)
+        }
+        let result = try await uploadFile(at: file, filename: name, expiry: expiry, progress: progress)
+        if await waitUntilStored(filename: result.id) == false { throw ZiplineError.notStored }
+        return result
     }
 
     /// Sends a file in chunks read from disk, so a large video never sits in memory.

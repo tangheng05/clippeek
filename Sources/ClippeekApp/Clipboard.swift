@@ -34,9 +34,13 @@ enum Clipboard {
     }
 
     static func put(link: URL) {
+        put(text: link.absoluteString)
+    }
+
+    static func put(text: String) {
         provider = nil
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(link.absoluteString, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private static func pngData(from source: CGImageSource) -> Data? {

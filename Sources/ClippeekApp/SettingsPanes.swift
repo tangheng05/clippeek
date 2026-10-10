@@ -63,6 +63,36 @@ private extension View {
     }
 }
 
+/// Moves each upload to a folder instead of deleting it.
+private struct KeepCopyRows: View {
+    @Bindable var model: AppModel
+    let kind: CaptureKind
+
+    var body: some View {
+        Toggle("Keep a copy on this Mac", isOn: kind == .screenshot ? $model.keepScreenshots : $model.keepVideos)
+        if kind == .screenshot ? model.keepScreenshots : model.keepVideos {
+            LabeledContent("Save copies to") {
+                HStack(spacing: 6) {
+                    Text(FileManager.default.displayName(atPath: model.keepFolder(for: kind).path))
+                        .foregroundStyle(.secondary)
+                        .help(model.keepFolder(for: kind).path)
+                    Button("Choose…", action: choose)
+                }
+            }
+        }
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.directoryURL = model.keepFolder(for: kind)
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK, let folder = panel.url { model.keepFolders[kind] = folder }
+    }
+}
+
 private func expiryPicker(_ selection: Binding<Expiry>) -> some View {
     Picker("Delete from server after", selection: selection) {
         Text("Never").tag(Expiry.never)
@@ -114,6 +144,18 @@ struct GeneralPane: View {
         Form {
             OpenAtLoginToggle(status: loginStatus)
             Section {
+                Picker("Copy links as", selection: $model.linkFormat) {
+                    Text("Plain link").tag(LinkFormat.plain)
+                    Text("Markdown").tag(LinkFormat.markdown)
+                    Text("HTML").tag(LinkFormat.html)
+                }
+            } footer: {
+                Text("Drop files on the menu bar icon, or right-click them in Finder and choose Services → Upload with clippeek.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
                 LabeledContent("Shortcut to open clippeek") {
                     ShortcutRecorder(model: model)
                 }
@@ -142,6 +184,7 @@ struct ScreenshotsPane: View {
                 Group {
                     expiryPicker($model.expiry)
                     Toggle("Copy the link after each upload", isOn: $model.copyLinkAfterUpload)
+                    KeepCopyRows(model: model, kind: .screenshot)
                 }
                 .disabled(!model.isCapturing(.screenshot))
             } footer: {
@@ -150,8 +193,41 @@ struct ScreenshotsPane: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Section {
+                Picker("Compress on Zipline", selection: compressionFormat) {
+                    Text("Off").tag(ImageCompression.Format?.none)
+                    Text("WebP").tag(ImageCompression.Format?.some(.webp))
+                    Text("JPEG").tag(ImageCompression.Format?.some(.jpeg))
+                }
+                if model.compression != nil {
+                    Picker("Quality", selection: compressionQuality) {
+                        Text("High").tag(90)
+                        Text("Medium").tag(75)
+                        Text("Low").tag(50)
+                    }
+                }
+            } footer: {
+                Text("Zipline stores a smaller copy, so links load faster. Your clipboard and any kept copy stay full quality.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .pane()
+    }
+}
+
+extension ScreenshotsPane {
+    private var compressionFormat: Binding<ImageCompression.Format?> {
+        Binding(get: { model.compression?.format }, set: { format in
+            model.compression = format.map { ImageCompression(format: $0, quality: model.compression?.quality ?? 90) }
+        })
+    }
+
+    private var compressionQuality: Binding<Int> {
+        Binding(get: { model.compression?.quality ?? 90 }, set: { quality in
+            model.compression = model.compression.map { ImageCompression(format: $0.format, quality: quality) }
+        })
     }
 }
 
@@ -166,6 +242,7 @@ struct RecordingsPane: View {
                     expiryPicker($model.expiryVideo)
                     Toggle("Copy the link after each upload", isOn: $model.copyLinkVideo)
                     Toggle("Notify after each upload", isOn: $model.notifyVideo)
+                    KeepCopyRows(model: model, kind: .video)
                 }
                 .disabled(!model.isCapturing(.video))
             } footer: {

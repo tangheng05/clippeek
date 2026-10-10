@@ -174,7 +174,14 @@ struct HistoryView: View {
     private func menu(for item: HistoryItem) -> some View {
         if item.kind == .screenshot { Button("Copy Image") { activate(item, link: false) } }
         Button("Copy Link") { activate(item, link: true) }
+        Button("Copy as Markdown") { copyLink(item, .markdown) }
+        Button("Copy as HTML") { copyLink(item, .html) }
+        if item.kind == .screenshot { Button("Copy Text") { copyText(item) } }
+        Divider()
         Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
+        if let file = item.localFile, FileManager.default.fileExists(atPath: file.path) {
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        }
         if let deletesAt = item.deletesAt {
             Divider()
             Text("Deletes \(deletesAt.formatted(.relative(presentation: .named)))")
@@ -232,6 +239,25 @@ struct HistoryView: View {
                 confirm(CopyFeedback(id: item.id, text: "Copied", symbol: "checkmark"))
             } else {
                 confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"), thenClose: false)
+            }
+        }
+    }
+
+    private func copyLink(_ item: HistoryItem, _ format: LinkFormat) {
+        model.copyLink(item, format: format)
+        confirm(CopyFeedback(id: item.id, text: "Link Copied", symbol: "link"))
+    }
+
+    private func copyText(_ item: HistoryItem) {
+        guard copying == nil else { return }
+        copying = item.id
+        Task {
+            let result = await model.copyText(item)
+            copying = nil
+            switch result {
+            case .copied: confirm(CopyFeedback(id: item.id, text: "Text Copied", symbol: "text.viewfinder"))
+            case .none: confirm(CopyFeedback(id: item.id, text: "No Text Found", symbol: "magnifyingglass"), thenClose: false)
+            case .failed: confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"), thenClose: false)
             }
         }
     }

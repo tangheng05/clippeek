@@ -19,6 +19,15 @@ import Testing
         #expect(String(decoding: body, as: UTF8.self) == expected)
     }
 
+    @Test func compressionHeaders() {
+        let request = Zipline.uploadRequest(server: server, token: "t", file: Data(), filename: "a.png", mimeType: "image/png",
+                                            expiry: .never, compression: ImageCompression(format: .webp, quality: 140))
+        #expect(request.value(forHTTPHeaderField: "X-Zipline-Image-Compression-Type") == "webp")
+        #expect(request.value(forHTTPHeaderField: "X-Zipline-Image-Compression-Percent") == "100")
+        let plain = Zipline.uploadRequest(server: server, token: "t", file: Data(), filename: "a.png", mimeType: "image/png", expiry: .never)
+        #expect(plain.value(forHTTPHeaderField: "X-Zipline-Image-Compression-Type") == nil)
+    }
+
     @Test func uploadRequest() {
         let request = Zipline.uploadRequest(server: server, token: "secret", file: Data("PNG".utf8), filename: "shot.png",
                                             mimeType: "image/png", expiry: .sevenDays, multipart: Multipart(boundary: "b"))

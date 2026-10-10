@@ -70,19 +70,21 @@ From then on, take screenshots and recordings exactly as you always have.
 
 - **Click** a thumbnail to copy the image (for videos, the link).
 - **⌥-click** to copy the link.
-- **Right-click** for Copy Image, Copy Link, Open in Browser and Delete from Zipline.
+- **Right-click** for Copy Image, Copy Link, Copy as Markdown or HTML, Copy Text (read on your Mac with Apple's Vision), Open in Browser, Show in Finder (for kept copies) and Delete from Zipline.
 - **Arrow keys** move through the grid; **Return** copies.
 - **Hover** a thumbnail to see how long ago it was taken and, if it expires, how long Zipline keeps it.
 
 Set a **shortcut** in Settings → General to open the history from anywhere.
 
+**Other files:** drop any file on the menu bar icon, or right-click files in Finder and choose **Services → Upload with clippeek**. The links are copied; images and videos also join the history. The files stay where they are.
+
 **The icon tells you what's happening:** an arrow while uploading, a check when it's done, an exclamation mark when something needs your attention, and dimmed while nothing is being sent. Right-click it to switch screenshots or recordings on or off, or to open Settings.
 
 **Settings** has four tabs:
 
-- **General:** open at login, the shortcut, the version.
-- **Screenshots:** on or off, delete from the server after a day, a week or a month, copy the link after each upload.
-- **Recordings:** on or off, delete from the server after, copy the link after each upload, notify after each upload.
+- **General:** open at login, copy links as plain, Markdown or HTML, the shortcut, the version.
+- **Screenshots:** on or off, delete from the server after a day, a week or a month, copy the link after each upload, keep a copy on this Mac, and have Zipline store a smaller WebP or JPEG.
+- **Recordings:** on or off, delete from the server after, copy the link after each upload, notify after each upload, keep a copy on this Mac.
 - **Server:** your Zipline address and token.
 
 ## Command line

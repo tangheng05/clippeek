@@ -32,10 +32,17 @@ func restoreCapture() {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = AppModel()
     private var statusItem: StatusItemController?
+    private var services: ServiceProvider?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Notifier.shared.start()
         model.start()
+        let services = ServiceProvider { [model] files in
+            MainActor.assumeIsolated { model.send(files) }
+        }
+        self.services = services
+        NSApp.servicesProvider = services
+        NSUpdateDynamicServices()
         let statusItem = StatusItemController(model: model)
         self.statusItem = statusItem
         Task {

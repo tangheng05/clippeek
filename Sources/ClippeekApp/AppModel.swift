@@ -50,6 +50,21 @@ final class AppModel {
             if notifyVideo { Notifier.shared.requestPermission() }
         }
     }
+    /// How links go on the clipboard after an upload or a click.
+    var linkFormat: LinkFormat { didSet { UserDefaults.standard.set(linkFormat.rawValue, forKey: "linkFormat") } }
+    /// Nil sends screenshots as they are.
+    var compression: ImageCompression? {
+        didSet { UserDefaults.standard.set(compression.flatMap { try? JSONEncoder().encode($0) }, forKey: "compression") }
+    }
+    var keepScreenshots: Bool { didSet { UserDefaults.standard.set(keepScreenshots, forKey: "keepScreenshots") } }
+    var keepVideos: Bool { didSet { UserDefaults.standard.set(keepVideos, forKey: "keepVideos") } }
+    /// Chosen folders for kept copies; nil means where macOS saved that kind before clippeek.
+    var keepFolders: [CaptureKind: URL] {
+        didSet { UserDefaults.standard.set(keepFolders.mapValues(\.path).reduce(into: [String: String]()) { $0[$1.key.rawValue] = $1.value },
+                                           forKey: "keepFolders") }
+    }
+    /// Files dropped on the icon or sent from Finder that are still going up.
+    private(set) var sending = 0
     /// Opens the history from anywhere; nil means off.
     var shortcut: KeyCombo? {
         didSet {
@@ -100,6 +115,14 @@ final class AppModel {
         expiryVideo = Expiry(rawValue: defaults.string(forKey: "expiryVideo") ?? "") ?? .never
         copyLinkVideo = defaults.object(forKey: "copyLinkVideo") as? Bool ?? true
         notifyVideo = defaults.object(forKey: "notifyVideo") as? Bool ?? true
+        linkFormat = LinkFormat(rawValue: defaults.string(forKey: "linkFormat") ?? "") ?? .plain
+        compression = defaults.data(forKey: "compression").flatMap { try? JSONDecoder().decode(ImageCompression.self, from: $0) }
+        keepScreenshots = defaults.bool(forKey: "keepScreenshots")
+        keepVideos = defaults.bool(forKey: "keepVideos")
+        let folders = defaults.dictionary(forKey: "keepFolders") as? [String: String] ?? [:]
+        keepFolders = folders.reduce(into: [:]) { result, entry in
+            if let kind = CaptureKind(rawValue: entry.key) { result[kind] = URL(fileURLWithPath: entry.value) }
+        }
         shortcut = defaults.string(forKey: "keyCombo").flatMap { try? JSONDecoder().decode(KeyCombo.self, from: Data($0.utf8)) }
         if let data = defaults.data(forKey: "captureState"), let state = try? JSONDecoder().decode(CaptureState.self, from: data) {
             captureState = state
@@ -269,7 +292,7 @@ final class AppModel {
                     pending[name] = nil
                     return
                 }
-                result = try await client.upload(data, filename: name, expiry: expiry)
+                result = try await client.upload(data, filename: name, expiry: expiry, compression: compression)
                 // Decoding a full-size screenshot on the main thread would hitch the UI.
                 thumbnail = await Task.detached(priority: .utility) { Thumbnail.make(from: data) }.value
             case .video:
@@ -363,24 +386,86 @@ final class AppModel {
     }
 
     private func finish(name: String, file: URL, kind: CaptureKind, thumbnail: Data?, result: UploadResult) {
-        let thumbnailName = "\(result.id).png"
-        try? thumbnail?.write(to: folders.thumbnails.appending(path: thumbnailName))
-        let item = HistoryItem(id: result.id, url: result.url, created: .now, deletesAt: result.deletesAt,
-                               thumbnail: thumbnailName, kind: kind)
-        for dropped in history.add(item) { removeThumbnail(dropped) }
-        saveHistory()
-        try? FileManager.default.removeItem(at: file)
+        let kept = keep(file, kind: kind)
+        if kept == nil { try? FileManager.default.removeItem(at: file) }
+        remember(result, kind: kind, thumbnail: thumbnail, localFile: kept)
         pending[name] = nil
         setUnconfirmed(name, nil)
         lastFinished = .now
         let unchanged = clipboardMarks.removeValue(forKey: name) == NSPasteboard.general.changeCount
         switch kind {
         case .screenshot:
-            if copyLinkAfterUpload, unchanged { Clipboard.put(link: result.url) }
+            if copyLinkAfterUpload, unchanged { Clipboard.put(text: linkFormat.text(for: result.url)) }
         case .video:
             let copy = copyLinkVideo && unchanged
-            if copy { Clipboard.put(link: result.url) }
+            if copy { Clipboard.put(text: linkFormat.text(for: result.url)) }
             if notifyVideo { Notifier.shared.uploaded(result.url, linkCopied: copy) }
+        }
+    }
+
+    private func remember(_ result: UploadResult, kind: CaptureKind, thumbnail: Data?, localFile: URL?) {
+        let thumbnailName = "\(result.id).png"
+        try? thumbnail?.write(to: folders.thumbnails.appending(path: thumbnailName))
+        let item = HistoryItem(id: result.id, url: result.url, created: .now, deletesAt: result.deletesAt,
+                               thumbnail: thumbnailName, kind: kind, localFile: localFile)
+        for dropped in history.add(item) { removeThumbnail(dropped) }
+        saveHistory()
+    }
+
+    /// Moves an uploaded capture to the user's folder when they keep copies; nil when it isn't kept.
+    private func keep(_ file: URL, kind: CaptureKind) -> URL? {
+        guard kind == .screenshot ? keepScreenshots : keepVideos else { return nil }
+        let destination = unused(file.lastPathComponent, in: keepFolder(for: kind))
+        try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return (try? FileManager.default.moveItem(at: file, to: destination)) == nil ? nil : destination
+    }
+
+    func keepFolder(for kind: CaptureKind) -> URL {
+        keepFolders[kind] ?? captureState.userFolder(for: kind, current: SystemPreferences.read(CaptureState.allKeys),
+                                                     inbox: folders.inbox, home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    // MARK: Sending files
+
+    /// Files dropped on the icon or picked in Finder; they stay where they are.
+    func send(_ files: [URL]) {
+        let files = files.filter { !$0.hasDirectoryPath }
+        guard !files.isEmpty else { return }
+        guard let client else {
+            issue = "Connect your Zipline server in Settings first."
+            return
+        }
+        sending += files.count
+        Task {
+            var links: [String] = []
+            for file in files {
+                let kind = Inbox.kind(of: file.lastPathComponent)
+                do {
+                    let result = try await client.send(file, expiry: kind == .video ? expiryVideo : expiry,
+                                                       compression: compression) { value in
+                        Task { @MainActor in self.videoProgress = value < 1 ? value : nil }
+                    }
+                    videoProgress = nil
+                    links.append(linkFormat.text(for: result.url))
+                    if let kind {
+                        let thumbnail = await Self.thumbnail(of: file, kind: kind)
+                        remember(result, kind: kind, thumbnail: thumbnail, localFile: file)
+                    }
+                    lastFinished = .now
+                } catch {
+                    videoProgress = nil
+                    issue = "Couldn't upload \(file.lastPathComponent): \(CLI.message(for: error))"
+                }
+                sending -= 1
+            }
+            if !links.isEmpty { Clipboard.put(text: links.joined(separator: "\n")) }
+        }
+    }
+
+    private nonisolated static func thumbnail(of file: URL, kind: CaptureKind) async -> Data? {
+        switch kind {
+        case .screenshot: (try? Data(contentsOf: file)).flatMap { Thumbnail.make(from: $0) }
+        case .video: await Thumbnail.make(fromVideo: file)
         }
     }
 
@@ -429,14 +514,33 @@ final class AppModel {
 
     @discardableResult
     func copyImage(_ item: HistoryItem) async -> Bool {
+        if let data = item.localFile.flatMap({ try? Data(contentsOf: $0) }) {
+            Clipboard.put(image: data)
+            return true
+        }
         guard let (data, response) = try? await session.data(from: item.url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
         Clipboard.put(image: data)
         return true
     }
 
-    func copyLink(_ item: HistoryItem) {
-        Clipboard.put(link: item.url)
+    func copyLink(_ item: HistoryItem, format: LinkFormat? = nil) {
+        Clipboard.put(text: (format ?? linkFormat).text(for: item.url))
+    }
+
+    enum TextResult { case copied, none, failed }
+
+    /// Reads the screenshot's text on this Mac, from the kept copy when there is one.
+    func copyText(_ item: HistoryItem) async -> TextResult {
+        var data = item.localFile.flatMap { try? Data(contentsOf: $0) }
+        if data == nil, let (body, response) = try? await session.data(from: item.url),
+           (response as? HTTPURLResponse)?.statusCode == 200 {
+            data = body
+        }
+        guard let data else { return .failed }
+        guard let text = await TextRecognition.text(in: data) else { return .none }
+        Clipboard.put(text: text)
+        return .copied
     }
 
     func deleteFromServer(_ item: HistoryItem) async {

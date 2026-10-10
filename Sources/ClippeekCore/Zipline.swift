@@ -22,6 +22,22 @@ public enum Expiry: String, CaseIterable, Codable, Sendable {
     case never, oneDay = "1d", sevenDays = "7d", thirtyDays = "30d"
 }
 
+/// Zipline re-encodes images on upload; the Mac keeps the original.
+public struct ImageCompression: Codable, Equatable, Sendable {
+    public enum Format: String, Codable, CaseIterable, Sendable {
+        case webp, jpeg
+    }
+
+    public var format: Format
+    /// 0…100.
+    public var quality: Int
+
+    public init(format: Format, quality: Int) {
+        self.format = format
+        self.quality = quality
+    }
+}
+
 public struct UploadResult: Codable, Equatable, Sendable {
     public var id: String
     public var url: URL
@@ -35,15 +51,20 @@ public struct UploadResult: Codable, Equatable, Sendable {
 }
 
 public enum ZiplineError: Error, Equatable, Sendable {
-    case unauthorized, tooLarge, quotaFull, tooManyUploads, rejected(String?), server(Int), badResponse, emptyFile
+    case unauthorized, tooLarge, quotaFull, tooManyUploads, rejected(String?), server(Int), badResponse, emptyFile, notStored
 }
 
 public enum Zipline {
     public static func uploadRequest(server: ZiplineServer, token: String, file: Data, filename: String,
-                                     mimeType: String, expiry: Expiry, multipart: Multipart = Multipart()) -> URLRequest {
+                                     mimeType: String, expiry: Expiry, compression: ImageCompression? = nil,
+                                     multipart: Multipart = Multipart()) -> URLRequest {
         var request = authorized(server.uploadURL, token: token, method: "POST")
         request.setValue(multipart.contentType, forHTTPHeaderField: "Content-Type")
         if expiry != .never { request.setValue(expiry.rawValue, forHTTPHeaderField: "X-Zipline-Deletes-At") }
+        if let compression {
+            request.setValue(compression.format.rawValue, forHTTPHeaderField: "X-Zipline-Image-Compression-Type")
+            request.setValue(String(min(max(compression.quality, 0), 100)), forHTTPHeaderField: "X-Zipline-Image-Compression-Percent")
+        }
         request.httpBody = multipart.body(field: "file", filename: filename, mimeType: mimeType, data: file)
         return request
     }

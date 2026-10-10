@@ -76,16 +76,12 @@ enum CLI {
         let name = file.lastPathComponent
         let kind = Inbox.kind(of: name)
         let expiry = expiry ?? preference(kind == .video ? "expiryVideo" : "expiry").flatMap(Expiry.init) ?? .never
-        let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard kind == .video || size > PartialUpload.chunkSize else {
-            return try await client.upload(try Data(contentsOf: file), filename: name, expiry: expiry)
-        }
+        let compression = preferenceData("compression").flatMap { try? JSONDecoder().decode(ImageCompression.self, from: $0) }
         let showProgress = isatty(STDERR_FILENO) != 0
-        let result = try await client.uploadFile(at: file, filename: name, expiry: expiry, progress: { value in
+        let result = try await client.send(file, expiry: expiry, compression: compression) { value in
             if showProgress { FileHandle.standardError.write(Data("\r\(name): \(Int(value * 100))%".utf8)) }
-        })
+        }
         if showProgress { FileHandle.standardError.write(Data("\r\u{1B}[K".utf8)) }
-        if await client.waitUntilStored(filename: result.id) == false { throw NotStored() }
         return result
     }
 
@@ -101,7 +97,7 @@ enum CLI {
         try? FileManager.default.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
         try? thumbnail?.write(to: folders.thumbnails.appending(path: thumbnailName))
         let item = HistoryItem(id: result.id, url: result.url, created: .now, deletesAt: result.deletesAt,
-                               thumbnail: thumbnailName, kind: kind)
+                               thumbnail: thumbnailName, kind: kind, localFile: file)
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .contains { $0.processIdentifier != getpid() }
         if running {
@@ -117,14 +113,16 @@ enum CLI {
         }
     }
 
-    private struct NotStored: Error {}
-
     /// Read straight from the app's domain, which works however the binary was started.
     private static func preference(_ key: String) -> String? {
         CFPreferencesCopyAppValue(key as CFString, bundleID as CFString) as? String
     }
 
-    private static func message(for error: any Error) -> String {
+    private static func preferenceData(_ key: String) -> Data? {
+        CFPreferencesCopyAppValue(key as CFString, bundleID as CFString) as? Data
+    }
+
+    static func message(for error: any Error) -> String {
         switch error {
         case ZiplineError.unauthorized: "Zipline didn't accept the token. Paste a new one in clippeek's Settings."
         case ZiplineError.tooLarge: "Too large for your Zipline. Raise \"Max file size\" in Zipline's admin settings."
@@ -134,7 +132,7 @@ enum CLI {
         case ZiplineError.tooManyUploads: "Zipline has too many unfinished uploads. Try again in a few minutes."
         case ZiplineError.server(let status): "Zipline answered with an error (\(status))."
         case ZiplineError.badResponse: "The server didn't answer like Zipline. Check the address in clippeek's Settings."
-        case is NotStored: "Zipline couldn't finish saving it."
+        case ZiplineError.notStored: "Zipline couldn't finish saving it."
         case let error as CocoaError where error.code == .fileReadNoSuchFile: "No such file."
         default: error.localizedDescription
         }
