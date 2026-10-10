@@ -18,6 +18,10 @@ cask "clippeek" do
         must_succeed:   false,
         writable_paths: ["Clippeek.app"],
         writable_base:  :appdir
+    # The uninstall script runs on upgrade too, so reopening puts capture back on the inbox.
+    run "/usr/bin/open",
+        args:         ["-g", "/Applications/Clippeek.app"],
+        must_succeed: false
   end
 
   # Puts the user's screenshot settings back; skipped if the app is already gone.

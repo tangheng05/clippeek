@@ -17,6 +17,9 @@ struct Folders {
     let thumbnails: URL
     let historyFile: URL
 
+    /// Recordings sent but not yet confirmed by Zipline, so they aren't sent twice.
+    var unconfirmedFile: URL { historyFile.deletingLastPathComponent().appending(path: "unconfirmed.json") }
+
     static let standard: Folders = {
         let base = URL.applicationSupportDirectory.appending(path: "clippeek")
         return Folders(inbox: base.appending(path: "Inbox"), thumbnails: base.appending(path: "Thumbnails"),
@@ -31,7 +34,10 @@ final class AppModel {
     /// Inbox file name to its upload state.
     private(set) var pending: [String: PendingState] = [:]
     /// Shown in the popover and as a warning icon, e.g. a rejected token.
-    private(set) var problem: String?
+    var problem: String? {
+        issue ?? (waitingForLowData ? "Waiting — Low Data Mode is on. Recordings upload when it's off." : nil)
+    }
+    private var issue: String?
 
     var serverText: String { didSet { UserDefaults.standard.set(serverText, forKey: "server") } }
     var expiry: Expiry { didSet { UserDefaults.standard.set(expiry.rawValue, forKey: "expiry") } }
@@ -53,15 +59,26 @@ final class AppModel {
     let folders: Folders
     @ObservationIgnored private var watcher: InboxWatcher?
     @ObservationIgnored private let path = NWPathMonitor()
+    @ObservationIgnored private var network: NetworkPath?
+    @ObservationIgnored private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }()
     @ObservationIgnored private var uploading = false
-    /// Set after a network error until the backoff timer or a network change.
+    /// Keeps App Nap from stretching an upload while the queue runs.
+    @ObservationIgnored private var activity: (any NSObjectProtocol)?
+    /// Set after a network error until the backoff timer, a network change or a new capture.
     private(set) var waitingForRetry = false
+    /// Recordings wait while Low Data Mode is on; screenshots still go.
+    private(set) var waitingForLowData = false
     /// Only a rejected token stops uploads; other problems are just shown.
     private(set) var tokenRejected = false
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var retry: Task<Void, Never>?
-    /// The clipboard's change count when each recording landed.
+    /// The clipboard's change count when each capture landed, so a link never replaces something copied since.
     @ObservationIgnored private var clipboardMarks: [String: Int] = [:]
+    @ObservationIgnored private var unconfirmed: [String: UploadResult] = [:]
     /// Read once: each Keychain read can ask for the login password after an app update.
     private(set) var token: String?
 
@@ -96,10 +113,13 @@ final class AppModel {
         }
         history = History.load(from: folders.historyFile)
         removeExpired()
+        unconfirmed = PartialUpload.unconfirmed(from: try? Data(contentsOf: folders.unconfirmedFile))
         watcher = InboxWatcher(folder: folders.inbox) { [weak self] in self?.scan() }
         path.pathUpdateHandler = { [weak self] update in
-            guard update.status == .satisfied else { return }
-            Task { @MainActor in self?.networkReturned() }
+            let current = NetworkPath(satisfied: update.status == .satisfied,
+                                      interface: update.availableInterfaces.first.map { "\($0.type)" },
+                                      constrained: update.isConstrained)
+            Task { @MainActor in self?.pathChanged(current) }
         }
         path.start(queue: .main)
         scan()
@@ -116,6 +136,7 @@ final class AppModel {
     private func scan() {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folders.inbox.path)) ?? []
         let capturing = Set(CaptureKind.allCases.filter(isCapturing))
+        var added = false
         for name in Inbox.newCaptures(in: names, handled: Set(pending.keys)) {
             guard let kind = Inbox.kind(of: name) else { continue }
             guard Inbox.shouldUpload(name, capturing: capturing) else {
@@ -123,23 +144,41 @@ final class AppModel {
                 continue
             }
             pending[name] = .waiting
-            if kind == .video { clipboardMarks[name] = NSPasteboard.general.changeCount }
-            guard kind == .screenshot else { continue }
-            let file = folders.inbox.appending(path: name)
-            let created = (try? file.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            if Inbox.isRecent(created: created, now: .now), let data = try? Data(contentsOf: file) {
+            added = true
+            if kind == .screenshot, Inbox.isRecent(created: created(name), now: .now),
+               let data = try? Data(contentsOf: folders.inbox.appending(path: name)) {
                 Clipboard.put(image: data)
             }
+            clipboardMarks[name] = NSPasteboard.general.changeCount
         }
         // Files deleted by hand drop out of the queue.
-        for name in pending.keys where !names.contains(name) { pending[name] = nil }
+        for name in pending.keys where !names.contains(name) {
+            pending[name] = nil
+            clipboardMarks[name] = nil
+        }
+        for name in unconfirmed.keys where !names.contains(name) { setUnconfirmed(name, nil) }
+        // Past the last backoff step, a new capture gets one fresh attempt.
+        if added, waitingForRetry, Backoff.delay(attempt: attempt) == nil { waitingForRetry = false }
         uploadNext()
+    }
+
+    private func created(_ name: String) -> Date {
+        (try? folders.inbox.appending(path: name).resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
     }
 
     /// Puts a file of a kind that's switched off back where the user keeps those, instead of uploading it.
     private func returnToUser(_ name: String, kind: CaptureKind) {
         let folder = captureState.userFolder(for: kind, current: SystemPreferences.read(CaptureState.allKeys),
                                              inbox: folders.inbox, home: FileManager.default.homeDirectoryForCurrentUser)
+        let source = folders.inbox.appending(path: name)
+        do {
+            try FileManager.default.moveItem(at: source, to: unused(name, in: folder))
+        } catch {
+            try? FileManager.default.moveItem(at: source, to: unused(name, in: .desktopDirectory))
+        }
+    }
+
+    private func unused(_ name: String, in folder: URL) -> URL {
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension
         var destination = folder.appending(path: name)
@@ -148,19 +187,35 @@ final class AppModel {
             destination = folder.appending(path: "\(base) \(copy).\(ext)")
             copy += 1
         }
-        try? FileManager.default.moveItem(at: folders.inbox.appending(path: name), to: destination)
+        return destination
     }
 
     // MARK: Uploads
 
     private var client: ZiplineClient? {
         guard let server = ZiplineServer(serverText), let token else { return nil }
-        return ZiplineClient(server: server, token: token)
+        return ZiplineClient(server: server, token: token, session: session)
+    }
+
+    private func nextWaiting(screenshotsOnly: Bool = false) -> String? {
+        let names = pending.filter { name, state in
+            guard state == .waiting else { return false }
+            return Inbox.kind(of: name) == .screenshot || !(screenshotsOnly || waitingForLowData)
+        }.keys
+        return Inbox.next(in: names.map { ($0, created($0)) })
     }
 
     private func uploadNext() {
-        guard !uploading, !waitingForRetry, !tokenRejected, let client,
-              let name = Inbox.next(in: pending.filter { $0.value == .waiting }.map(\.key)) else { return }
+        guard !uploading else { return }
+        guard !waitingForRetry, !tokenRejected, let client, let name = nextWaiting() else {
+            if let activity { ProcessInfo.processInfo.endActivity(activity) }
+            activity = nil
+            return
+        }
+        if activity == nil {
+            activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                                                             reason: "Uploading captures")
+        }
         uploading = true
         pending[name] = .uploading
         Task {
@@ -173,9 +228,14 @@ final class AppModel {
     private func upload(name: String, file: URL, client: ZiplineClient) async {
         guard FileManager.default.fileExists(atPath: file.path) else {
             pending[name] = nil
+            setUnconfirmed(name, nil)
             return
         }
         let kind = Inbox.kind(of: name) ?? .screenshot
+        if kind == .video, let result = unconfirmed[name] {
+            Task { await confirm(name: name, file: file, client: client, result: result) }
+            return
+        }
         do {
             let result: UploadResult
             let thumbnail: Data?
@@ -200,30 +260,42 @@ final class AppModel {
                     },
                     betweenChunks: { [weak self] in await self?.uploadWaitingScreenshots(client: client) })
                 attempt = 0
-                problem = nil
+                issue = nil
                 // Zipline assembles the chunks in the background; the recording stays until it confirms.
+                setUnconfirmed(name, uploaded)
                 Task { await confirm(name: name, file: file, client: client, result: uploaded) }
                 return
             }
             finish(name: name, file: file, kind: kind, thumbnail: thumbnail, result: result)
             attempt = 0
-            problem = nil
+            issue = nil
         } catch ZiplineError.unauthorized {
             pending[name] = .waiting
             tokenRejected = true
-            problem = "Zipline didn't accept your token. Paste a new one in Settings."
+            issue = "Zipline didn't accept your token. Paste a new one in Settings."
         } catch ZiplineError.tooLarge {
-            pending[name] = .failed("Too large for your Zipline. Raise \"Max file size\" in Zipline's admin settings.")
+            fail(name, "Too large for your Zipline. Raise \"Max file size\" in Zipline's admin settings.")
+        } catch ZiplineError.quotaFull {
+            fail(name, "Your Zipline storage quota is full.")
+        } catch ZiplineError.rejected(let reason) {
+            fail(name, reason.map { "Zipline refused this file: \($0)" } ?? "Zipline refused this file.")
         } catch ZiplineError.emptyFile {
-            pending[name] = .failed("This file is empty, so there's nothing to upload.")
+            fail(name, "This file is empty, so there's nothing to upload.")
+        } catch ZiplineError.tooManyUploads {
+            pending[name] = .waiting
+            issue = "Zipline has too many unfinished uploads. Retrying automatically."
+            scheduleRetry()
         } catch ZiplineError.server(let status) {
             pending[name] = .waiting
-            problem = "Zipline answered with an error (\(status)). Retrying automatically."
+            issue = "Zipline answered with an error (\(status)). Retrying automatically."
             scheduleRetry()
         } catch ZiplineError.badResponse {
             pending[name] = .waiting
-            problem = "The server didn't answer like Zipline. Check the address in Settings."
+            issue = "The server didn't answer like Zipline. Check the address in Settings."
             scheduleRetry()
+        } catch let error as URLError where error.networkUnavailableReason == .constrained {
+            pending[name] = .waiting
+            waitingForLowData = true
         } catch {
             pending[name] = .waiting
             scheduleRetry()
@@ -237,16 +309,30 @@ final class AppModel {
             let thumbnail = await Thumbnail.make(fromVideo: file)
             finish(name: name, file: file, kind: .video, thumbnail: thumbnail, result: result)
         case false?:
-            pending[name] = .failed("Zipline couldn't finish saving this recording. It's still on your Mac.")
+            setUnconfirmed(name, nil)
+            fail(name, "Zipline couldn't finish saving this recording. It's still on your Mac.")
         case nil:
-            pending[name] = .failed("Zipline hasn't confirmed this recording yet. It stays on your Mac until you delete it.")
+            // Stays unconfirmed, so Retry checks again instead of sending it twice.
+            fail(name, "Zipline hasn't confirmed this recording yet. It stays on your Mac until you delete it.")
         }
+    }
+
+    private func fail(_ name: String, _ reason: String) {
+        pending[name] = .failed(reason)
+        if Inbox.kind(of: name) == .video, notifyVideo {
+            Notifier.shared.failed(folders.inbox.appending(path: name), reason: reason)
+        }
+    }
+
+    private func setUnconfirmed(_ name: String, _ result: UploadResult?) {
+        guard unconfirmed[name] != result else { return }
+        unconfirmed[name] = result
+        try? PartialUpload.encoded(unconfirmed).write(to: folders.unconfirmedFile, options: .atomic)
     }
 
     /// Runs between a video's chunks, so screenshots taken meanwhile don't wait for the whole video.
     private func uploadWaitingScreenshots(client: ZiplineClient) async {
-        while !waitingForRetry, !tokenRejected,
-              let name = pending.filter({ $0.value == .waiting && Inbox.kind(of: $0.key) == .screenshot }).keys.sorted().first {
+        while !waitingForRetry, !tokenRejected, let name = nextWaiting(screenshotsOnly: true) {
             pending[name] = .uploading
             await upload(name: name, file: folders.inbox.appending(path: name), client: client)
         }
@@ -261,21 +347,23 @@ final class AppModel {
         saveHistory()
         try? FileManager.default.removeItem(at: file)
         pending[name] = nil
+        setUnconfirmed(name, nil)
         lastFinished = .now
+        let unchanged = clipboardMarks.removeValue(forKey: name) == NSPasteboard.general.changeCount
         switch kind {
         case .screenshot:
-            if copyLinkAfterUpload { Clipboard.put(link: result.url) }
+            if copyLinkAfterUpload, unchanged { Clipboard.put(link: result.url) }
         case .video:
-            // Only if nothing was copied since the recording landed; otherwise the link would replace it.
-            let copy = copyLinkVideo && clipboardMarks[name] == NSPasteboard.general.changeCount
+            let copy = copyLinkVideo && unchanged
             if copy { Clipboard.put(link: result.url) }
             if notifyVideo { Notifier.shared.uploaded(result.url, linkCopied: copy) }
-            clipboardMarks[name] = nil
         }
     }
 
-    /// After the last step only a network change retries.
+    /// After the last step only a network change, a new capture or the user retries.
     private func scheduleRetry() {
+        // Another upload already failed and started the wait; one outage counts once.
+        guard !waitingForRetry else { return }
         retry?.cancel()
         waitingForRetry = true
         guard let delay = Backoff.delay(attempt: attempt) else { return }
@@ -286,6 +374,16 @@ final class AppModel {
             waitingForRetry = false
             uploadNext()
         }
+    }
+
+    private func pathChanged(_ current: NetworkPath) {
+        defer { network = current }
+        guard current.isReturn(from: network) else { return }
+        if waitingForLowData, !current.constrained {
+            waitingForLowData = false
+            uploadNext()
+        }
+        if waitingForRetry { networkReturned() }
     }
 
     private func networkReturned() {
@@ -307,7 +405,7 @@ final class AppModel {
 
     @discardableResult
     func copyImage(_ item: HistoryItem) async -> Bool {
-        guard let (data, response) = try? await URLSession.shared.data(from: item.url),
+        guard let (data, response) = try? await session.data(from: item.url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
         Clipboard.put(image: data)
         return true
@@ -324,7 +422,7 @@ final class AppModel {
             if let removed = history.remove(id: item.id) { removeThumbnail(removed) }
             saveHistory()
         } catch {
-            problem = "Couldn't delete that file from Zipline. Try again in a moment."
+            issue = "Couldn't delete that file from Zipline. Try again in a moment."
         }
     }
 
@@ -334,7 +432,7 @@ final class AppModel {
         Keychain.setToken(token)
         self.token = token.isEmpty ? nil : token
         tokenRejected = false
-        problem = nil
+        issue = nil
         networkReturned()
     }
 
@@ -350,7 +448,7 @@ final class AppModel {
         do {
             try await client.checkConnection()
             tokenRejected = false
-            problem = nil
+            issue = nil
             // A fixed address or token shouldn't wait out the backoff.
             networkReturned()
             return ConnectionStatus(ok: true, message: "Connected")
@@ -383,7 +481,8 @@ final class AppModel {
 
     func dismissProblem() {
         tokenRejected = false
-        problem = nil
+        issue = nil
+        waitingForLowData = false
         networkReturned()
     }
 
@@ -437,7 +536,7 @@ extension AppModel {
         }
         self.history = history
         pending = Dictionary(uniqueKeysWithValues: (0..<waiting).map { ("Screenshot \($0).png", PendingState.waiting) })
-        self.problem = problem
+        issue = problem
         captureState = CaptureState()
         for kind in capturing { _ = captureState.set(kind, on: true, current: [:], inbox: folders.inbox) }
         self.videoProgress = videoProgress

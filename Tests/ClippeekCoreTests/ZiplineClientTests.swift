@@ -108,8 +108,10 @@ final class StubProtocol: URLProtocol {
         }
     }
 
+    /// Only the incomplete list knows the upload; the file itself isn't there.
     func statuses(_ list: [String]) -> (URLRequest) -> (Int, Data) {
-        { _ in
+        { request in
+            guard request.url?.path() == "/api/user/files/incomplete" else { return (404, Data()) }
             let status = list[min(StubProtocol.requests.count, list.count) - 1]
             return (200, Data(#"[{"status":"\#(status)","metadata":{"file":{"filename":"v.mov","type":"video/quicktime","id":"r"}}}]"#.utf8))
         }
@@ -134,6 +136,32 @@ final class StubProtocol: URLProtocol {
         StubProtocol.requests = []
         StubProtocol.handler = statuses(["PROCESSING"])
         #expect(await client.waitUntilStored(filename: "v.mov", delays: [0, 0]) == nil)
+        #expect(StubProtocol.requests.last?.url?.path() == "/api/user/files/v.mov")
+    }
+
+    /// After the last delay, a stored file confirms the upload even if the incomplete list doesn't.
+    @Test func storedFileConfirms() async {
+        StubProtocol.requests = []
+        StubProtocol.handler = { request in
+            request.url?.path() == "/api/user/files/v.mov" ? (200, Data(#"{"id":"r","name":"v.mov"}"#.utf8)) : (200, Data("[]".utf8))
+        }
+        #expect(await client.waitUntilStored(filename: "v.mov", delays: [0, 0]) == true)
+        #expect(StubProtocol.requests.count == 3)
+    }
+
+    @Test func refusedFileCarriesReason() async {
+        StubProtocol.handler = { _ in (400, Data(#"{"error":"E1004: Invalid filename","code":1004,"statusCode":400}"#.utf8)) }
+        await #expect(throws: ZiplineError.rejected("Invalid filename")) {
+            try await client.upload(Data("PNG".utf8), filename: "a.png", expiry: .never)
+        }
+    }
+
+    /// Byte-level progress is cut to whole percents, so the menu bar redraws at most 100 times.
+    @Test func progressInWholePercents() {
+        let calls = Calls()
+        let reporter = ProgressReporter(total: 1000) { calls.progress.append($0) }
+        for sent in [0, 3, 9, 10, 15, 8, 500, 999, 1000, 1000] { reporter.update(sent) }
+        #expect(calls.progress == [0, 0.01, 0.5, 0.99, 1])
     }
 
     /// Servers without this endpoint can't confirm, so the upload counts as done.

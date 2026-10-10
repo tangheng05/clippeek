@@ -8,6 +8,7 @@ public enum Inbox {
     private static let types: [String: (kind: CaptureKind, mime: String)] = [
         "png": (.screenshot, "image/png"), "jpg": (.screenshot, "image/jpeg"), "jpeg": (.screenshot, "image/jpeg"),
         "heic": (.screenshot, "image/heic"), "tiff": (.screenshot, "image/tiff"),
+        "pdf": (.screenshot, "application/pdf"), "gif": (.screenshot, "image/gif"), "bmp": (.screenshot, "image/bmp"),
         "mov": (.video, "video/quicktime"), "mp4": (.video, "video/mp4"),
     ]
 
@@ -25,10 +26,11 @@ public enum Inbox {
         kind(of: name).map(capturing.contains) ?? false
     }
 
-    /// Screenshots first, so a long video never holds one up.
-    public static func next(in waiting: [String]) -> String? {
-        let sorted = waiting.sorted()
-        return sorted.first { kind(of: $0) == .screenshot } ?? sorted.first
+    /// Screenshots first, so a long video never holds one up; then oldest first, since names with
+    /// 12-hour times don't sort by time.
+    public static func next(in waiting: [(name: String, created: Date)]) -> String? {
+        let sorted = waiting.sorted { ($0.created, $0.name) < ($1.created, $1.name) }
+        return (sorted.first { kind(of: $0.name) == .screenshot } ?? sorted.first)?.name
     }
 
     /// Files left from before launch still upload, but only fresh ones replace the clipboard.

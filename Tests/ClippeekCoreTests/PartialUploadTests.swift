@@ -28,6 +28,7 @@ import Testing
         #expect(request.value(forHTTPHeaderField: "x-zipline-p-lastchunk") == "false")
         #expect(request.value(forHTTPHeaderField: "x-zipline-p-token") == nil)
         #expect(request.value(forHTTPHeaderField: "X-Zipline-Deletes-At") == "7d")
+        #expect(!request.allowsConstrainedNetworkAccess)
         let body = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
         #expect(body.contains("name=\"file\"; filename=\"a.mov\"\r\nContent-Type: video/quicktime\r\n\r\nabcd\r\n"))
     }
@@ -67,6 +68,18 @@ import Testing
         let json = Data(#"{"error":"E5001: File too large","code":5001,"statusCode":413}"#.utf8)
         #expect(throws: ZiplineError.tooLarge) { try PartialUpload.parse(status: 413, data: json) }
         #expect(throws: ZiplineError.tooLarge) { try PartialUpload.parse(status: 400, data: json) }
+        let quota = Data(#"{"error":"E5002: Quota exceeded","code":5002,"statusCode":413}"#.utf8)
+        #expect(throws: ZiplineError.quotaFull) { try PartialUpload.parse(status: 413, data: quota) }
+    }
+
+    /// Recordings sent but not confirmed survive a relaunch, so they're checked instead of sent again.
+    @Test func unconfirmedRoundTrips() throws {
+        let date = try #require(ISO8601DateFormatter().date(from: "2026-10-17T05:00:00Z"))
+        let unconfirmed = ["Screen Recording.mov": UploadResult(id: "Ab3.mov", url: URL(string: "https://z.io/Ab3.mov")!, deletesAt: date),
+                           "b.mov": UploadResult(id: "Cd4.mov", url: URL(string: "https://z.io/Cd4.mov")!, deletesAt: nil)]
+        #expect(PartialUpload.unconfirmed(from: PartialUpload.encoded(unconfirmed)) == unconfirmed)
+        #expect(PartialUpload.unconfirmed(from: nil).isEmpty)
+        #expect(PartialUpload.unconfirmed(from: Data("garbage".utf8)).isEmpty)
     }
 
     @Test func errorsAndHTML() {

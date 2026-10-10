@@ -67,6 +67,24 @@ import Testing
         #expect(throws: ZiplineError.server(502)) { try Zipline.parseUpload(status: 502, data: Data()) }
     }
 
+    func body(_ code: Int, _ error: String, _ status: Int) -> Data {
+        Data(#"{"error":"\#(error)","code":\#(code),"statusCode":\#(status)}"#.utf8)
+    }
+
+    @Test func errorCodes() {
+        #expect(throws: ZiplineError.quotaFull) { try Zipline.check(413, body: body(5002, "E5002: Storage quota exceeded", 413)) }
+        #expect(throws: ZiplineError.tooLarge) { try Zipline.check(413, body: body(5001, "E5001: File too large", 413)) }
+        #expect(throws: ZiplineError.tooManyUploads) {
+            try Zipline.check(400, body: body(1003, "E1003: Too many partial uploads", 400))
+        }
+        #expect(throws: ZiplineError.rejected("Invalid characters in filename")) {
+            try Zipline.check(400, body: body(1004, "E1004: Invalid characters in filename", 400))
+        }
+        #expect(throws: ZiplineError.rejected(nil)) { try Zipline.check(400, body: Data("<html>Bad request</html>".utf8)) }
+        #expect(throws: ZiplineError.server(404)) { try Zipline.check(404, body: body(4000, "E4000: Not found", 404)) }
+        #expect(throws: Never.self) { try Zipline.check(200, body: body(5002, "", 200)) }
+    }
+
     @Test func htmlIsBadResponse() {
         #expect(throws: ZiplineError.badResponse) {
             try Zipline.parseUpload(status: 200, data: Data("<html>Bad gateway</html>".utf8))
