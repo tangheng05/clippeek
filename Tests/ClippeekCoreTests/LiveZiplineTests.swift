@@ -33,4 +33,22 @@ struct LiveZiplineTests {
         let bad = ZiplineClient(server: try client.server, token: "not-a-token")
         await #expect(throws: ZiplineError.unauthorized) { try await bad.checkConnection() }
     }
+
+    @Test func chunkedUploadDownloadDelete() async throws {
+        let client = try client
+        let data = Data((0..<(3 * 1024 * 1024)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        let file = FileManager.default.temporaryDirectory.appending(path: "clippeek-live-test.mov")
+        try data.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let result = try await client.uploadFile(at: file, filename: "clippeek-live-test.mov", expiry: .oneDay,
+                                                 chunkSize: 1024 * 1024)
+        // Zipline finishes a chunked upload in the background.
+        var downloaded = Data()
+        for _ in 0..<20 where downloaded != data {
+            try await Task.sleep(for: .milliseconds(500))
+            downloaded = (try? await URLSession.shared.data(from: result.url).0) ?? Data()
+        }
+        #expect(downloaded == data)
+        try await client.delete(id: result.id)
+    }
 }
