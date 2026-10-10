@@ -372,6 +372,7 @@ extension AppModel {
         captureState = CaptureState()
         for kind in capturing { _ = captureState.set(kind, on: true, current: [:], inbox: folders.inbox) }
         self.videoProgress = videoProgress
+        token = "sample"
     }
 }
 #endif

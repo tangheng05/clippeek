@@ -11,18 +11,14 @@ struct HistoryView: View {
     let model: AppModel
     /// False while closed, so nothing inside keeps re-rendering in the background.
     let visible: Bool
-    var openSettings: () -> Void = {}
+    var openSettings: (SettingsTabs.Pane) -> Void = { _ in }
     var close: () -> Void = {}
     var onResize: ((CGFloat) -> Void)?
 
     @State private var copying: String?
-    @State private var copied: Copied?
-
-    private struct Copied: Equatable {
-        let id: String
-        let text: String
-        let symbol: String
-    }
+    @State private var copied: CopyFeedback?
+    @State private var selection: String?
+    @FocusState private var gridFocused: Bool
 
     var body: some View {
         if visible {
@@ -49,29 +45,41 @@ struct HistoryView: View {
         HStack(alignment: .firstTextBaseline) {
             Text("clippeek").font(.headline)
             Spacer()
-            if let progress = model.videoProgress {
-                ProgressView(value: progress).frame(width: 60).controlSize(.mini)
-                Text("Uploading video… \(Int(progress * 100))%").font(.callout).foregroundStyle(.secondary)
-            } else if model.pending.values.contains(.uploading) {
-                ProgressView().controlSize(.mini)
-                Text("Uploading…").font(.callout).foregroundStyle(.secondary)
-            } else if waiting > 0 {
-                Text(waiting == 1 ? "1 waiting to upload" : "\(waiting) waiting to upload")
-                    .font(.callout).foregroundStyle(.secondary)
+            status
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        if let progress = model.videoProgress {
+            HStack(spacing: 6) {
+                ProgressView(value: progress).frame(width: 54).controlSize(.mini)
+                Text("Uploading video \(Int(progress * 100))%")
             }
+        } else if model.pending.values.contains(.uploading) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Uploading…")
+            }
+        } else if waiting > 0 {
+            Text(model.waitingForRetry ? "\(waiting) waiting, will retry" : "\(waiting) waiting")
+        } else if !model.history.items.isEmpty {
+            Text("All uploaded")
         }
     }
 
     @ViewBuilder
     private var notices: some View {
-        if !model.isCapturing(.screenshot) {
-            Notice(symbol: "camera.viewfinder", tint: .secondary,
-                   text: "Screenshots are saved as usual, not sent to clippeek.") {
-                Button("Turn On") { model.setCapture(.screenshot, true) }
+        if ZiplineServer(model.serverText) == nil || model.token == nil {
+            Notice(symbol: "server.rack", tint: .orange, text: "Connect your Zipline server to start uploading.") {
+                Button("Set Up…") { openSettings(.server) }
             }
-        } else if ZiplineServer(model.serverText) == nil || model.token == nil {
-            Notice(symbol: "server.rack", tint: .orange, text: "Add your Zipline server and token to start uploading.") {
-                Button("Settings…", action: openSettings)
+        } else if !model.isCapturing(.screenshot) {
+            Notice(symbol: "camera.viewfinder", tint: .secondary, text: "Screenshots aren't being sent to Zipline.") {
+                Button("Turn On") { model.setCapture(.screenshot, true) }
             }
         }
         if let problem = model.problem {
@@ -81,9 +89,9 @@ struct HistoryView: View {
         }
         if !failed.isEmpty {
             Notice(symbol: "exclamationmark.triangle.fill", tint: .orange,
-                   text: failed.count == 1 ? "1 screenshot couldn't upload." : "\(failed.count) screenshots couldn't upload.") {
+                   text: failed.count == 1 ? failed[0].reason : "\(failed.count) files couldn't upload.") {
                 Button("Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting(failed.map { model.folders.inbox.appending(path: $0) })
+                    NSWorkspace.shared.activateFileViewerSelecting(failed.map { model.folders.inbox.appending(path: $0.name) })
                 }
             }
         }
@@ -106,23 +114,50 @@ struct HistoryView: View {
 
     private var grid: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: 3),
-                          spacing: Self.spacing) {
-                    ForEach(model.history.items) { tile($0) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: 3),
+                              spacing: Self.spacing) {
+                        ForEach(model.history.items) { item in
+                            HistoryTile(item: item,
+                                        image: ThumbnailCache.image(at: model.folders.thumbnails.appending(path: item.thumbnail)),
+                                        height: Self.tileHeight, selected: selection == item.id,
+                                        copying: copying == item.id, copied: copied?.id == item.id ? copied : nil) { link in
+                                activate(item, link: link)
+                            }
+                            .id(item.id)
+                            .contextMenu { menu(for: item) }
+                        }
+                    }
                 }
+                .frame(height: gridHeight)
+                .scrollIndicators(.automatic)
+                .focusable()
+                .focusEffectDisabled()
+                .focused($gridFocused)
+                .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow, .return]) { press in
+                    handle(press.key, proxy: proxy)
+                }
+                .onAppear { gridFocused = true }
             }
-            .frame(height: gridHeight)
-            .scrollIndicators(.automatic)
-            Text("Click to copy, ⌥-click to copy the link. Videos copy their link.")
+            Text("Click to copy. ⌥-click copies the link.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
     }
 
+    @ViewBuilder
+    private func menu(for item: HistoryItem) -> some View {
+        if item.kind == .screenshot { Button("Copy Image") { activate(item, link: false) } }
+        Button("Copy Link") { activate(item, link: true) }
+        Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
+        Divider()
+        Button("Delete from Zipline", role: .destructive) { Task { await model.deleteFromServer(item) } }
+    }
+
     private var footer: some View {
         HStack {
-            Button("Settings…", action: openSettings)
+            Button("Settings…") { openSettings(.general) }
                 .keyboardShortcut(",")
             Spacer()
             Button("Quit clippeek") { NSApp.terminate(nil) }
@@ -130,82 +165,47 @@ struct HistoryView: View {
         .buttonStyle(.borderless)
     }
 
-    private func tile(_ item: HistoryItem) -> some View {
-        Button {
-            activate(item, link: item.kind == .video || NSEvent.modifierFlags.contains(.option))
-        } label: {
-            // Filling a fixed box keeps odd-shaped screenshots from stretching the grid.
-            Color.clear
-                .frame(height: Self.tileHeight)
-                .overlay {
-                    if let image = ThumbnailCache.image(at: model.folders.thumbnails.appending(path: item.thumbnail)) {
-                        Image(nsImage: image).resizable().scaledToFill()
-                    } else {
-                        Image(systemName: "photo").foregroundStyle(.tertiary)
-                    }
-                }
-                .clipShape(.rect(cornerRadius: 6))
-                .overlay(alignment: .bottomLeading) {
-                    if item.kind == .video {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.white)
-                            .padding(5)
-                            .background(.black.opacity(0.55), in: .circle)
-                            .padding(5)
-                    }
-                }
-                .overlay { overlay(for: item) }
-                .contentShape(.rect(cornerRadius: 6))
-        }
-        .buttonStyle(TileStyle())
-        .help("\(item.created.formatted(.relative(presentation: .named))). " + (item.kind == .video ? "Click to copy the link." : "Click to copy, ⌥-click to copy the link."))
-        .contextMenu {
-            if item.kind == .screenshot { Button("Copy Image") { activate(item, link: false) } }
-            Button("Copy Link") { activate(item, link: true) }
-            Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
-            Divider()
-            Button("Delete from Zipline", role: .destructive) { Task { await model.deleteFromServer(item) } }
-        }
-    }
-
-    @ViewBuilder
-    private func overlay(for item: HistoryItem) -> some View {
-        if copying == item.id {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.45))
-                ProgressView().controlSize(.small).tint(.white)
-            }
-        } else if let copied, copied.id == item.id {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.55))
-                Label(copied.text, systemImage: copied.symbol)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-            .transition(.opacity)
-        }
-    }
-
     // MARK: Actions
+
+    /// Arrow keys move the selection, clamped to the grid; Return copies it.
+    private func handle(_ key: KeyEquivalent, proxy: ScrollViewProxy) -> KeyPress.Result {
+        let items = model.history.items
+        guard !items.isEmpty else { return .ignored }
+        if key == .return {
+            guard let item = items.first(where: { $0.id == selection }) else { return .ignored }
+            activate(item, link: item.kind == .video || NSEvent.modifierFlags.contains(.option))
+            return .handled
+        }
+        let step = switch key {
+        case .leftArrow: -1
+        case .rightArrow: 1
+        case .upArrow: -3
+        default: 3
+        }
+        let current = items.firstIndex { $0.id == selection }
+        let next = current.map { min(max($0 + step, 0), items.count - 1) } ?? 0
+        selection = items[next].id
+        proxy.scrollTo(items[next].id)
+        return .handled
+    }
 
     private func activate(_ item: HistoryItem, link: Bool) {
         guard copying == nil else { return }
         if link {
             model.copyLink(item)
-            confirm(Copied(id: item.id, text: "Link Copied", symbol: "link"))
+            confirm(CopyFeedback(id: item.id, text: "Link Copied", symbol: "link"))
             return
         }
         copying = item.id
         Task {
             let ok = await model.copyImage(item)
             copying = nil
-            if ok { confirm(Copied(id: item.id, text: "Copied", symbol: "checkmark")) }
+            if ok { confirm(CopyFeedback(id: item.id, text: "Copied", symbol: "checkmark")) }
         }
     }
 
     /// Shows the confirmation briefly, then gets out of the way so the user can paste.
-    private func confirm(_ value: Copied) {
+    private func confirm(_ value: CopyFeedback) {
         withAnimation(.easeOut(duration: 0.15)) { copied = value }
         Task {
             try? await Task.sleep(for: .milliseconds(600))
@@ -216,8 +216,11 @@ struct HistoryView: View {
 
     // MARK: Derived
 
-    private var failed: [String] {
-        model.pending.filter { if case .failed = $0.value { true } else { false } }.keys.sorted()
+    private var failed: [(name: String, reason: String)] {
+        model.pending.compactMap { name, state in
+            if case .failed(let reason) = state { (name, reason) } else { nil }
+        }
+        .sorted { $0.name < $1.name }
     }
 
     private var waiting: Int {
@@ -229,6 +232,96 @@ struct HistoryView: View {
         let rows = (model.history.items.count + 2) / 3
         let shown = rows > Self.visibleRows ? Double(Self.visibleRows) + 0.5 : Double(rows)
         return shown * Self.tileHeight + (shown.rounded(.up) - 1) * Self.spacing
+    }
+}
+
+private struct CopyFeedback: Equatable {
+    let id: String
+    let text: String
+    let symbol: String
+}
+
+private struct HistoryTile: View {
+    let item: HistoryItem
+    let image: NSImage?
+    let height: CGFloat
+    let selected: Bool
+    let copying: Bool
+    let copied: CopyFeedback?
+    let action: (_ link: Bool) -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        // Filling a fixed box keeps odd-shaped screenshots from stretching the grid.
+        Color.clear
+            .frame(height: height)
+            .overlay {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    Image(systemName: "photo").foregroundStyle(.tertiary)
+                }
+            }
+            .clipShape(.rect(cornerRadius: 6))
+            .overlay(alignment: .bottomLeading) {
+                if item.kind == .video {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .background(.black.opacity(0.55), in: .circle)
+                        .padding(5)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if hovering && copied == nil && !copying {
+                    Text(age)
+                        .font(.caption2.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.55), in: .capsule)
+                        .padding(5)
+                }
+            }
+            .overlay { feedback }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(hovering || selected ? Color.accentColor : Color.primary.opacity(0.12),
+                                  lineWidth: hovering || selected ? 2 : 1)
+            }
+            .contentShape(.rect(cornerRadius: 6))
+            .onHover { hovering = $0 }
+            .onTapGesture { action(item.kind == .video || NSEvent.modifierFlags.contains(.option)) }
+            .help(item.kind == .video ? "Click to copy the link." : "Click to copy, ⌥-click to copy the link.")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(item.kind == .video ? "Screen recording" : "Screenshot"), \(item.created.formatted(.relative(presentation: .named)))")
+            .accessibilityHint(item.kind == .video ? "Copies the link" : "Copies the image")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action(item.kind == .video) }
+    }
+
+    private var age: String {
+        item.created.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+    }
+
+    @ViewBuilder
+    private var feedback: some View {
+        if copying {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.45))
+                ProgressView().controlSize(.small).tint(.white)
+            }
+        } else if let copied {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.55))
+                Label(copied.text, systemImage: copied.symbol)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+            .transition(.opacity)
+        }
     }
 }
 
@@ -249,28 +342,6 @@ private struct Notice<Action: View>: View {
         }
         .padding(10)
         .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 8))
-    }
-}
-
-private struct TileStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Tile(configuration: configuration)
-    }
-
-    private struct Tile: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var hovering = false
-
-        var body: some View {
-            configuration.label
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(hovering ? Color.accentColor : Color.primary.opacity(0.12), lineWidth: hovering ? 2 : 1)
-                }
-                .scaleEffect(configuration.isPressed ? 0.96 : 1)
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-                .onHover { hovering = $0 }
-        }
     }
 }
 

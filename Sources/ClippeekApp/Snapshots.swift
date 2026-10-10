@@ -23,7 +23,7 @@ enum Snapshots {
             ("few", model { $0.loadSample(items: 4, videos: 1, videoProgress: 0.4) }),
             ("many", model { $0.loadSample(items: 17, waiting: 2) }),
             ("problems", model {
-                $0.loadSample(items: 5, waiting: 1, problem: "Zipline rejected the token. Check it in Settings.", capturing: [])
+                $0.loadSample(items: 5, waiting: 1, problem: "Zipline didn't accept your token. Paste a new one in Settings.", capturing: [])
             }),
         ]
         for (suffix, name) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
