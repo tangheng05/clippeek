@@ -61,10 +61,10 @@ struct HistoryView: View {
 
     @ViewBuilder
     private var notices: some View {
-        if !model.captureOn {
+        if !model.isCapturing(.screenshot) {
             Notice(symbol: "camera.viewfinder", tint: .secondary,
                    text: "Screenshots are saved as usual, not sent to clippeek.") {
-                Button("Turn On") { model.setCapture(true) }
+                Button("Turn On") { model.setCapture(.screenshot, true) }
             }
         } else if ZiplineServer(model.serverText) == nil || model.token == nil {
             Notice(symbol: "server.rack", tint: .orange, text: "Add your Zipline server and token to start uploading.") {

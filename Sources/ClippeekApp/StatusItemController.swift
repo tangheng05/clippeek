@@ -36,7 +36,7 @@ final class StatusItemController {
 
     /// The Settings window doubles as onboarding.
     func openSettingsIfNeeded() {
-        if ZiplineServer(model.serverText) == nil || model.token == nil || !model.captureOn { openSettings() }
+        if ZiplineServer(model.serverText) == nil || model.token == nil || (!model.isCapturing(.screenshot) && !model.isCapturing(.video)) { openSettings() }
     }
 
     private func observe() {
@@ -53,8 +53,8 @@ final class StatusItemController {
         let warning = model.problem != nil || failed
         button.image = NSImage(systemSymbolName: warning ? "exclamationmark.triangle" : "camera.viewfinder",
                                accessibilityDescription: "clippeek")
-        button.appearsDisabled = !model.captureOn
-        button.toolTip = model.captureOn ? "clippeek" : "clippeek (screenshots aren't being sent)"
+        button.appearsDisabled = !model.isCapturing(.screenshot) && !model.isCapturing(.video)
+        button.toolTip = button.appearsDisabled ? "clippeek (nothing is being sent)" : "clippeek"
     }
 
     @objc private func clicked() {
@@ -69,7 +69,7 @@ final class StatusItemController {
         menu.addItem(withTitle: "Open clippeek", action: #selector(toggle), keyEquivalent: "").target = self
         let capture = menu.addItem(withTitle: "Send Screenshots to clippeek", action: #selector(toggleCapture), keyEquivalent: "")
         capture.target = self
-        capture.state = model.captureOn ? .on : .off
+        capture.state = model.isCapturing(.screenshot) ? .on : .off
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit clippeek", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -80,7 +80,7 @@ final class StatusItemController {
     }
 
     @objc private func toggleCapture() {
-        model.setCapture(!model.captureOn)
+        model.setCapture(.screenshot, !model.isCapturing(.screenshot))
     }
 
     @objc private func toggle() {

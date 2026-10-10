@@ -17,7 +17,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Send screenshots to clippeek", isOn: Binding(get: { model.captureOn }, set: { model.setCapture($0) }))
+                Toggle("Send screenshots to clippeek", isOn: Binding(get: { model.isCapturing(.screenshot) }, set: { model.setCapture(.screenshot, $0) }))
             } footer: {
                 Text("Screenshots go to your clipboard and Zipline instead of the Desktop. Turning this off restores your previous screenshot settings.")
                     .font(.callout)

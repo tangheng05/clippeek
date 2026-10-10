@@ -36,7 +36,7 @@ final class AppModel {
     var serverText: String { didSet { UserDefaults.standard.set(serverText, forKey: "server") } }
     var expiry: Expiry { didSet { UserDefaults.standard.set(expiry.rawValue, forKey: "expiry") } }
     var copyLinkAfterUpload: Bool { didSet { UserDefaults.standard.set(copyLinkAfterUpload, forKey: "copyLink") } }
-    private(set) var captureOn: Bool
+    private(set) var captureState: CaptureState
 
     let folders: Folders
     @ObservationIgnored private var watcher: InboxWatcher?
@@ -57,15 +57,23 @@ final class AppModel {
         serverText = defaults.string(forKey: "server") ?? ""
         expiry = Expiry(rawValue: defaults.string(forKey: "expiry") ?? "") ?? .never
         copyLinkAfterUpload = defaults.bool(forKey: "copyLink")
-        captureOn = defaults.data(forKey: "previousScreenshotSettings") != nil
+        if let data = defaults.data(forKey: "captureState"), let state = try? JSONDecoder().decode(CaptureState.self, from: data) {
+            captureState = state
+        } else if let legacy = defaults.data(forKey: "previousScreenshotSettings"), let state = CaptureState.migrating(legacy: legacy) {
+            captureState = state
+            defaults.set(try? JSONEncoder().encode(state), forKey: "captureState")
+            defaults.removeObject(forKey: "previousScreenshotSettings")
+        } else {
+            captureState = CaptureState()
+        }
     }
 
     func start() {
         let files = FileManager.default
         try? files.createDirectory(at: folders.inbox, withIntermediateDirectories: true)
         try? files.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
-        // Puts back the inbox if something else changed the screenshot location meanwhile.
-        if captureOn { ScreenshotSettings.capturing(into: folders.inbox).write() }
+        // Puts back the inbox if something else changed a capture location meanwhile.
+        if let change = captureState.reapply(inbox: folders.inbox) { SystemPreferences.apply(change) }
         history = History.decode(try? Data(contentsOf: folders.historyFile))
         removeExpired()
         watcher = InboxWatcher(folder: folders.inbox) { [weak self] in self?.scan() }
@@ -250,20 +258,15 @@ final class AppModel {
         }
     }
 
-    func setCapture(_ on: Bool) {
-        // Turning it on twice would save clippeek's own settings as the ones to restore.
-        guard on != captureOn else { return }
-        let defaults = UserDefaults.standard
-        if on {
-            let previous = ScreenshotSettings.read()
-            defaults.set(try? JSONEncoder().encode(previous), forKey: "previousScreenshotSettings")
-            ScreenshotSettings.capturing(into: folders.inbox).write()
-        } else if let data = defaults.data(forKey: "previousScreenshotSettings"),
-                  let previous = try? JSONDecoder().decode(ScreenshotSettings.self, from: data) {
-            previous.write()
-            defaults.removeObject(forKey: "previousScreenshotSettings")
-        }
-        captureOn = on
+    func isCapturing(_ kind: CaptureKind) -> Bool {
+        captureState.isOn(kind)
+    }
+
+    func setCapture(_ kind: CaptureKind, _ on: Bool) {
+        let current = SystemPreferences.read(CaptureState.allKeys)
+        guard let change = captureState.set(kind, on: on, current: current, inbox: folders.inbox) else { return }
+        SystemPreferences.apply(change)
+        UserDefaults.standard.set(try? JSONEncoder().encode(captureState), forKey: "captureState")
     }
 
     func dismissProblem() {
@@ -284,7 +287,7 @@ final class AppModel {
 #if DEBUG
 extension AppModel {
     /// Fake state for `--snapshots`; thumbnails go into this model's own folders.
-    func loadSample(items count: Int, waiting: Int = 0, problem: String? = nil, captureOn: Bool = true) {
+    func loadSample(items count: Int, waiting: Int = 0, problem: String? = nil, capturing: Set<CaptureKind> = [.screenshot]) {
         try? FileManager.default.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
         let colors: [NSColor] = [.systemBlue, .systemTeal, .systemIndigo, .systemOrange, .systemPink, .systemGreen]
         var history = History()
@@ -308,7 +311,8 @@ extension AppModel {
         self.history = history
         pending = Dictionary(uniqueKeysWithValues: (0..<waiting).map { ("Screenshot \($0).png", PendingState.waiting) })
         self.problem = problem
-        self.captureOn = captureOn
+        captureState = CaptureState()
+        for kind in capturing { _ = captureState.set(kind, on: true, current: [:], inbox: folders.inbox) }
     }
 }
 #endif
