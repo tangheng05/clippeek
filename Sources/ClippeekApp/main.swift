@@ -8,7 +8,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make()
         model.start()
-        statusItem = StatusItemController(model: model)
+        let statusItem = StatusItemController(model: model)
+        self.statusItem = statusItem
+        Task {
+            await model.loadToken()
+            statusItem.openSettingsIfNeeded()
+        }
     }
 }
 

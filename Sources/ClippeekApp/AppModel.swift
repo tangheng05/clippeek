@@ -64,7 +64,6 @@ final class AppModel {
         let files = FileManager.default
         try? files.createDirectory(at: folders.inbox, withIntermediateDirectories: true)
         try? files.createDirectory(at: folders.thumbnails, withIntermediateDirectories: true)
-        token = Keychain.token()
         // Puts back the inbox if something else changed the screenshot location meanwhile.
         if captureOn { ScreenshotSettings.capturing(into: folders.inbox).write() }
         history = History.decode(try? Data(contentsOf: folders.historyFile))
@@ -76,6 +75,12 @@ final class AppModel {
         }
         path.start(queue: .main)
         scan()
+    }
+
+    /// Off the main thread: after an update macOS may ask for the password before releasing it.
+    func loadToken() async {
+        token = await Task.detached(priority: .userInitiated) { Keychain.token() }.value
+        uploadNext()
     }
 
     // MARK: Inbox

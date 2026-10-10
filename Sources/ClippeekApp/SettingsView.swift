@@ -33,6 +33,7 @@ struct SettingsView: View {
                         .labelsHidden()
                         .frame(maxWidth: 240)
                         .onChange(of: token) { status = nil }
+                        .onChange(of: model.token) { _, saved in if token.isEmpty { token = saved ?? "" } }
                         .onSubmit(saveAndTest)
                 }
                 HStack {

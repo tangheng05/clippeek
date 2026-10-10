@@ -3,14 +3,21 @@ import Security
 
 /// The Zipline token, kept out of UserDefaults.
 enum Keychain {
-    private static var query: [String: Any] { [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "io.github.tangheng05.clippeek",
-        kSecAttrAccount as String: "zipline",
-    ] }
+    private static let service = "io.github.tangheng05.clippeek"
 
+    /// An item another app owns can't be replaced, so a new token then goes under a new account.
+    private static var account: String {
+        get { UserDefaults.standard.string(forKey: "tokenAccount") ?? "zipline" }
+        set { UserDefaults.standard.set(newValue, forKey: "tokenAccount") }
+    }
+
+    private static func query(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+    }
+
+    /// Can block on the system password prompt, so call it off the main thread.
     static func token() -> String? {
-        var search = query
+        var search = query(account)
         search[kSecReturnData as String] = true
         var result: AnyObject?
         guard SecItemCopyMatching(search as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
@@ -18,9 +25,11 @@ enum Keychain {
     }
 
     static func setToken(_ token: String?) {
-        SecItemDelete(query as CFDictionary)
+        if SecItemDelete(query(account) as CFDictionary) == errSecInvalidOwnerEdit {
+            account = "zipline-\(UUID().uuidString)"
+        }
         guard let token, !token.isEmpty else { return }
-        var item = query
+        var item = query(account)
         item[kSecValueData as String] = Data(token.utf8)
         SecItemAdd(item as CFDictionary, nil)
     }

@@ -1,4 +1,5 @@
 import AppKit
+import ClippeekCore
 import SwiftUI
 
 @MainActor
@@ -31,9 +32,11 @@ final class StatusItemController {
             }
         }
         observe()
-        if model.serverText.isEmpty || model.token == nil || !model.captureOn {
-            DispatchQueue.main.async { self.openSettings() }
-        }
+    }
+
+    /// The Settings window doubles as onboarding.
+    func openSettingsIfNeeded() {
+        if ZiplineServer(model.serverText) == nil || model.token == nil || !model.captureOn { openSettings() }
     }
 
     private func observe() {
