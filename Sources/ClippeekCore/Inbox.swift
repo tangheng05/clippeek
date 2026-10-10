@@ -1,16 +1,29 @@
 import Foundation
 
-public enum Inbox {
-    private static let types = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                                "heic": "image/heic", "tiff": "image/tiff"]
+public enum CaptureKind: String, Codable, CodingKeyRepresentable, Sendable, CaseIterable {
+    case screenshot, video
+}
 
-    /// screencaptureui writes to a hidden temporary name, then renames it.
-    public static func isScreenshot(_ name: String) -> Bool {
-        !name.hasPrefix(".") && types[(name as NSString).pathExtension.lowercased()] != nil
+public enum Inbox {
+    private static let types: [String: (kind: CaptureKind, mime: String)] = [
+        "png": (.screenshot, "image/png"), "jpg": (.screenshot, "image/jpeg"), "jpeg": (.screenshot, "image/jpeg"),
+        "heic": (.screenshot, "image/heic"), "tiff": (.screenshot, "image/tiff"),
+        "mov": (.video, "video/quicktime"), "mp4": (.video, "video/mp4"),
+    ]
+
+    /// screencaptureui writes to a hidden temporary name, then renames it; those are ignored.
+    public static func kind(of name: String) -> CaptureKind? {
+        name.hasPrefix(".") ? nil : types[(name as NSString).pathExtension.lowercased()]?.kind
     }
 
-    public static func newScreenshots(in listing: [String], handled: Set<String>) -> [String] {
-        listing.filter { isScreenshot($0) && !handled.contains($0) }.sorted()
+    public static func newCaptures(in listing: [String], handled: Set<String>) -> [String] {
+        listing.filter { kind(of: $0) != nil && !handled.contains($0) }.sorted()
+    }
+
+    /// Screenshots first, so a long video never holds one up.
+    public static func next(in waiting: [String]) -> String? {
+        let sorted = waiting.sorted()
+        return sorted.first { kind(of: $0) == .screenshot } ?? sorted.first
     }
 
     /// Files left from before launch still upload, but only fresh ones replace the clipboard.
@@ -19,6 +32,6 @@ public enum Inbox {
     }
 
     public static func mimeType(for name: String) -> String {
-        types[(name as NSString).pathExtension.lowercased()] ?? "application/octet-stream"
+        types[(name as NSString).pathExtension.lowercased()]?.mime ?? "application/octet-stream"
     }
 }

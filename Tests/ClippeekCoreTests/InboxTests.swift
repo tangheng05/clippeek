@@ -6,21 +6,30 @@ import UniformTypeIdentifiers
 @testable import ClippeekCore
 
 @Suite struct InboxTests {
-    @Test func onlyFinishedImages() {
-        #expect(Inbox.isScreenshot("Screenshot 2026-10-09 at 15.00.00.png"))
-        #expect(!Inbox.isScreenshot(".Screenshot 2026-10-09 at 15.00.00.png"))
-        #expect(!Inbox.isScreenshot("notes.txt"))
-        #expect(!Inbox.isScreenshot(".DS_Store"))
+    @Test func classifiesByExtension() {
+        #expect(Inbox.kind(of: "Screenshot 2026-10-09 at 15.00.00.png") == .screenshot)
+        #expect(Inbox.kind(of: "a.JPG") == .screenshot)
+        #expect(Inbox.kind(of: "Screen Recording 2026-10-10 at 12.30.00\u{202F}PM.mov") == .video)
+        #expect(Inbox.kind(of: "clip.mp4") == .video)
+        #expect(Inbox.kind(of: "notes.txt") == nil)
+        #expect(Inbox.kind(of: ".DS_Store") == nil)
     }
 
-    /// The name macOS 27 writes to before renaming, seen in the inbox.
-    @Test func ignoresTemporaryFile() {
-        #expect(!Inbox.isScreenshot("..Screenshot 2026-10-09 at 6.29.36 PM.png-hOKjYG"))
+    /// The names macOS writes to before renaming, seen in the inbox.
+    @Test func ignoresTemporaryFiles() {
+        #expect(Inbox.kind(of: "..Screenshot 2026-10-09 at 6.29.36 PM.png-hOKjYG") == nil)
+        #expect(Inbox.kind(of: ".Screen Recording 2026-10-10 at 12.30.00 PM.mov") == nil)
     }
 
-    @Test func newScreenshotsSkipHandled() {
-        let listing = ["b.png", ".tmp.png", "a.png", "c.png"]
-        #expect(Inbox.newScreenshots(in: listing, handled: ["c.png"]) == ["a.png", "b.png"])
+    @Test func newCapturesSkipHandled() {
+        let listing = ["b.png", ".tmp.png", "a.mov", "c.png", "notes.txt"]
+        #expect(Inbox.newCaptures(in: listing, handled: ["c.png"]) == ["a.mov", "b.png"])
+    }
+
+    @Test func screenshotsGoBeforeVideos() {
+        #expect(Inbox.next(in: ["a.mov", "c.png", "b.png"]) == "b.png")
+        #expect(Inbox.next(in: ["b.mov", "a.mov"]) == "a.mov")
+        #expect(Inbox.next(in: []) == nil)
     }
 
     @Test func onlyRecentGoToClipboard() {
@@ -32,6 +41,8 @@ import UniformTypeIdentifiers
     @Test func mimeTypes() {
         #expect(Inbox.mimeType(for: "a.png") == "image/png")
         #expect(Inbox.mimeType(for: "a.JPG") == "image/jpeg")
+        #expect(Inbox.mimeType(for: "a.mov") == "video/quicktime")
+        #expect(Inbox.mimeType(for: "a.mp4") == "video/mp4")
     }
 
     @Test func thumbnailIsSmall() throws {

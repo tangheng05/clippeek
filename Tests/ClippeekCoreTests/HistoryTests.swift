@@ -39,4 +39,17 @@ import Testing
         #expect(Backoff.delay(attempt: 3) == 600)
         #expect(Backoff.delay(attempt: 4) == nil)
     }
+
+    /// history.json written before videos existed has no `kind`.
+    @Test func decodesItemsWithoutKind() {
+        let json = #"{"items":[{"id":"a","url":"https://z.io/u/a.png","created":"2026-10-09T10:00:00Z","thumbnail":"a.png"}]}"#
+        #expect(History.decode(Data(json.utf8)).items.first?.kind == .screenshot)
+    }
+
+    @Test func keepsVideoKind() {
+        var video = item("v")
+        video.kind = .video
+        let history = History(items: [video])
+        #expect(History.decode(history.encoded()).items.first?.kind == .video)
+    }
 }

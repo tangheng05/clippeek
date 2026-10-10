@@ -1,20 +1,32 @@
 import Foundation
 
 public struct HistoryItem: Codable, Equatable, Identifiable, Sendable {
-    /// Zipline's file id.
+    /// Zipline's file id, or the file's short name for chunked uploads.
     public var id: String
     public var url: URL
     public var created: Date
     public var deletesAt: Date?
     /// File name in the thumbnails folder.
     public var thumbnail: String
+    public var kind: CaptureKind
 
-    public init(id: String, url: URL, created: Date, deletesAt: Date?, thumbnail: String) {
+    public init(id: String, url: URL, created: Date, deletesAt: Date?, thumbnail: String, kind: CaptureKind = .screenshot) {
         self.id = id
         self.url = url
         self.created = created
         self.deletesAt = deletesAt
         self.thumbnail = thumbnail
+        self.kind = kind
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        url = try container.decode(URL.self, forKey: .url)
+        created = try container.decode(Date.self, forKey: .created)
+        deletesAt = try container.decodeIfPresent(Date.self, forKey: .deletesAt)
+        thumbnail = try container.decode(String.self, forKey: .thumbnail)
+        kind = try container.decodeIfPresent(CaptureKind.self, forKey: .kind) ?? .screenshot
     }
 }
 

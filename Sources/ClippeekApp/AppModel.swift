@@ -87,8 +87,9 @@ final class AppModel {
 
     private func scan() {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folders.inbox.path)) ?? []
-        for name in Inbox.newScreenshots(in: names, handled: Set(pending.keys)) {
+        for name in Inbox.newCaptures(in: names, handled: Set(pending.keys)) {
             pending[name] = .waiting
+            guard Inbox.kind(of: name) == .screenshot else { continue }
             let file = folders.inbox.appending(path: name)
             let created = (try? file.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
             if Inbox.isRecent(created: created, now: .now), let data = try? Data(contentsOf: file) {
@@ -109,7 +110,7 @@ final class AppModel {
 
     private func uploadNext() {
         guard !uploading, !waitingForRetry, !tokenRejected, let client,
-              let name = pending.filter({ $0.value == .waiting }).keys.sorted().first else { return }
+              let name = Inbox.next(in: pending.filter { $0.value == .waiting }.map(\.key)) else { return }
         uploading = true
         pending[name] = .uploading
         Task {
