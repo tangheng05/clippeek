@@ -3,7 +3,7 @@ ICON := build/AppIcon.icns
 BUILD := swift build -c release --arch arm64 --arch x86_64
 BIN = $(shell $(BUILD) --show-bin-path)
 
-.PHONY: app install test clean
+.PHONY: app install release snapshots test clean
 
 app: $(ICON)
 	$(BUILD)
@@ -24,6 +24,16 @@ install: app
 	rm -rf /Applications/Clippeek.app
 	cp -R $(APP) /Applications/
 	open /Applications/Clippeek.app
+
+release: app
+	cd build && rm -f Clippeek.zip && ditto -c -k --keepParent Clippeek.app Clippeek.zip
+	cd build && LC_ALL=C shasum -a 256 Clippeek.zip > Clippeek.zip.sha256
+
+# Renders every screen with sample data, without touching the real inbox, history or Keychain.
+snapshots: $(ICON)
+	swift build
+	.build/debug/ClippeekApp --snapshots build/snapshots
+	-defaults delete ClippeekApp 2>/dev/null
 
 test:
 	swift test

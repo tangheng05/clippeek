@@ -401,11 +401,24 @@ extension AppModel {
         for index in (0..<count).reversed() {
             let name = "sample-\(index).png"
             let size = NSSize(width: index % 3 == 0 ? 180 : 320, height: index % 4 == 0 ? 320 : 200)
+            // A window on a coloured desktop, so README screenshots look like real captures.
             let image = NSImage(size: size, flipped: false) { rect in
                 colors[index % colors.count].setFill()
                 rect.fill()
-                NSColor.white.withAlphaComponent(0.7).setFill()
-                NSRect(x: 16, y: rect.height - 40, width: rect.width * 0.6, height: 14).fill()
+                let window = rect.insetBy(dx: rect.width * 0.12, dy: rect.height * 0.14)
+                NSColor(white: index % 3 == 1 ? 0.16 : 0.98, alpha: 1).setFill()
+                NSBezierPath(roundedRect: window, xRadius: 9, yRadius: 9).fill()
+                for (dot, color) in [NSColor.systemRed, .systemYellow, .systemGreen].enumerated() {
+                    color.setFill()
+                    NSBezierPath(ovalIn: NSRect(x: window.minX + 10 + CGFloat(dot) * 12, y: window.maxY - 16, width: 7, height: 7)).fill()
+                }
+                NSColor(white: 0.5, alpha: 0.35).setFill()
+                for (line, width) in [0.7, 0.5, 0.62, 0.38].enumerated() {
+                    let y = window.maxY - 36 - CGFloat(line) * 16
+                    guard y > window.minY + 8 else { break }
+                    NSBezierPath(roundedRect: NSRect(x: window.minX + 12, y: y, width: (window.width - 24) * width, height: 7),
+                                 xRadius: 3.5, yRadius: 3.5).fill()
+                }
                 return true
             }
             if let tiff = image.tiffRepresentation,

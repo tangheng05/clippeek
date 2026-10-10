@@ -20,6 +20,7 @@ enum Snapshots {
         }
         let states: [(String, AppModel)] = [
             ("empty", model { $0.loadSample(items: 0) }),
+            ("readme", model { $0.loadSample(items: 6, videos: 1) }),
             ("few", model { $0.loadSample(items: 4, videos: 1, videoProgress: 0.4) }),
             ("many", model { $0.loadSample(items: 17, waiting: 2) }),
             ("problems", model {
