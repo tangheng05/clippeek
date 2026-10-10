@@ -61,12 +61,36 @@ public struct History: Codable, Equatable, Sendable {
         return items.remove(at: index)
     }
 
-    /// A missing or damaged file starts a fresh history rather than failing.
-    public static func decode(_ data: Data?) -> History {
+    /// Nil when the file can't be read at all; single bad items, e.g. from a newer build, are skipped.
+    public static func decode(_ data: Data) -> History? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let data, let history = try? decoder.decode(History.self, from: data) else { return History() }
-        return history
+        return try? decoder.decode(History.self, from: data)
+    }
+
+    /// A missing file starts a fresh history; a damaged one is kept beside it as `.bad` first.
+    public static func load(from file: URL) -> History {
+        guard let data = try? Data(contentsOf: file) else { return History() }
+        if let history = decode(data) { return history }
+        try? data.write(to: file.appendingPathExtension("bad"), options: .withoutOverwriting)
+        return History()
+    }
+
+    private struct Lenient: Decodable {
+        let item: HistoryItem?
+
+        init(from decoder: any Decoder) throws {
+            item = try? HistoryItem(from: decoder)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case items
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([Lenient].self, forKey: .items).compactMap(\.item)
     }
 
     public func encoded() -> Data {

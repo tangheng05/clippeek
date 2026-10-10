@@ -94,7 +94,7 @@ final class AppModel {
             SystemPreferences.apply(change)
             UserDefaults.standard.set(try? JSONEncoder().encode(captureState), forKey: "captureState")
         }
-        history = History.decode(try? Data(contentsOf: folders.historyFile))
+        history = History.load(from: folders.historyFile)
         removeExpired()
         watcher = InboxWatcher(folder: folders.inbox) { [weak self] in self?.scan() }
         path.pathUpdateHandler = { [weak self] update in
