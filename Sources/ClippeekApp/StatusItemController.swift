@@ -19,6 +19,8 @@ final class StatusItemController {
     private var rise: CGFloat = 0
     private var lastFinished: Date?
     private var shownCenter: MenuBarIcon.Center?
+    private var riseTask: Task<Void, Never>?
+    private var doneTask: Task<Void, Never>?
 
     init(model: AppModel) {
         self.model = model
@@ -89,8 +91,10 @@ final class StatusItemController {
     /// The arrow lifts into place once when an upload starts.
     private func playRise() {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        Task {
+        riseTask?.cancel()
+        riseTask = Task {
             for step in stride(from: -3.0, through: 0, by: 0.5) {
+                guard !Task.isCancelled else { return }
                 rise = step
                 applyIcon()
                 try? await Task.sleep(for: .milliseconds(30))
@@ -99,10 +103,12 @@ final class StatusItemController {
     }
 
     private func showDone() {
+        doneTask?.cancel()
         showingDone = true
         applyIcon()
-        Task {
+        doneTask = Task {
             try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
             showingDone = false
             applyIcon()
         }

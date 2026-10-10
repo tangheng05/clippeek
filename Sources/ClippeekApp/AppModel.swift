@@ -60,6 +60,8 @@ final class AppModel {
     @ObservationIgnored private var tokenRejected = false
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var retry: Task<Void, Never>?
+    /// The clipboard's change count when each recording landed.
+    @ObservationIgnored private var clipboardMarks: [String: Int] = [:]
     /// Read once: each Keychain read can ask for the login password after an app update.
     private(set) var token: String?
 
@@ -110,9 +112,16 @@ final class AppModel {
 
     private func scan() {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folders.inbox.path)) ?? []
+        let capturing = Set(CaptureKind.allCases.filter(isCapturing))
         for name in Inbox.newCaptures(in: names, handled: Set(pending.keys)) {
+            guard let kind = Inbox.kind(of: name) else { continue }
+            guard Inbox.shouldUpload(name, capturing: capturing) else {
+                returnToUser(name, kind: kind)
+                continue
+            }
             pending[name] = .waiting
-            guard Inbox.kind(of: name) == .screenshot else { continue }
+            if kind == .video { clipboardMarks[name] = NSPasteboard.general.changeCount }
+            guard kind == .screenshot else { continue }
             let file = folders.inbox.appending(path: name)
             let created = (try? file.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
             if Inbox.isRecent(created: created, now: .now), let data = try? Data(contentsOf: file) {
@@ -122,6 +131,21 @@ final class AppModel {
         // Files deleted by hand drop out of the queue.
         for name in pending.keys where !names.contains(name) { pending[name] = nil }
         uploadNext()
+    }
+
+    /// Puts a file of a kind that's switched off back where the user keeps those, instead of uploading it.
+    private func returnToUser(_ name: String, kind: CaptureKind) {
+        let folder = captureState.userFolder(for: kind, current: SystemPreferences.read(CaptureState.allKeys),
+                                             inbox: folders.inbox, home: FileManager.default.homeDirectoryForCurrentUser)
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var destination = folder.appending(path: name)
+        var copy = 2
+        while FileManager.default.fileExists(atPath: destination.path) {
+            destination = folder.appending(path: "\(base) \(copy).\(ext)")
+            copy += 1
+        }
+        try? FileManager.default.moveItem(at: folders.inbox.appending(path: name), to: destination)
     }
 
     // MARK: Uploads
@@ -164,7 +188,7 @@ final class AppModel {
             case .video:
                 videoProgress = 0
                 defer { videoProgress = nil }
-                result = try await client.uploadFile(
+                let uploaded = try await client.uploadFile(
                     at: file, filename: name, expiry: expiryVideo,
                     progress: { [weak self] value in
                         Task { @MainActor in
@@ -172,7 +196,11 @@ final class AppModel {
                         }
                     },
                     betweenChunks: { [weak self] in await self?.uploadWaitingScreenshots(client: client) })
-                thumbnail = await Thumbnail.make(fromVideo: file)
+                attempt = 0
+                problem = nil
+                // Zipline assembles the chunks in the background; the recording stays until it confirms.
+                Task { await confirm(name: name, file: file, client: client, result: uploaded) }
+                return
             }
             finish(name: name, file: file, kind: kind, thumbnail: thumbnail, result: result)
             attempt = 0
@@ -183,6 +211,8 @@ final class AppModel {
             problem = "Zipline didn't accept your token. Paste a new one in Settings."
         } catch ZiplineError.tooLarge {
             pending[name] = .failed("Too large for your Zipline. Raise \"Max file size\" in Zipline's admin settings.")
+        } catch ZiplineError.emptyFile {
+            pending[name] = .failed("This file is empty, so there's nothing to upload.")
         } catch ZiplineError.server(let status) {
             pending[name] = .waiting
             problem = "Zipline answered with an error (\(status)). Retrying automatically."
@@ -194,6 +224,19 @@ final class AppModel {
         } catch {
             pending[name] = .waiting
             scheduleRetry()
+        }
+    }
+
+    /// Keeps the recording until Zipline has stored it, so a failure on the server doesn't lose it.
+    private func confirm(name: String, file: URL, client: ZiplineClient, result: UploadResult) async {
+        switch await client.waitUntilStored(filename: result.id) {
+        case true?:
+            let thumbnail = await Thumbnail.make(fromVideo: file)
+            finish(name: name, file: file, kind: .video, thumbnail: thumbnail, result: result)
+        case false?:
+            pending[name] = .failed("Zipline couldn't finish saving this recording. It's still on your Mac.")
+        case nil:
+            pending[name] = .failed("Zipline hasn't confirmed this recording yet. It stays on your Mac until you delete it.")
         }
     }
 
@@ -220,8 +263,11 @@ final class AppModel {
         case .screenshot:
             if copyLinkAfterUpload { Clipboard.put(link: result.url) }
         case .video:
-            if copyLinkVideo { Clipboard.put(link: result.url) }
-            if notifyVideo { Notifier.shared.uploaded(result.url, linkCopied: copyLinkVideo) }
+            // Only if nothing was copied since the recording landed; otherwise the link would replace it.
+            let copy = copyLinkVideo && clipboardMarks[name] == NSPasteboard.general.changeCount
+            if copy { Clipboard.put(link: result.url) }
+            if notifyVideo { Notifier.shared.uploaded(result.url, linkCopied: copy) }
+            clipboardMarks[name] = nil
         }
     }
 
