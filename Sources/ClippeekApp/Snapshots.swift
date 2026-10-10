@@ -38,9 +38,16 @@ enum Snapshots {
                 write(menuBar(MenuBarIcon.image(center), appearance: appearance),
                       to: directory.appending(path: "menubar-\(label)-\(suffix).png"))
             }
-            let settings = SettingsView(model: model { _ in }, token: String(repeating: "x", count: 273))
-                .background(Color(nsColor: .windowBackgroundColor))
-            write(view(settings, appearance: appearance), to: directory.appending(path: "settings-\(suffix).png"))
+            let panes: [(String, AnyView)] = [
+                ("general", AnyView(GeneralPane())),
+                ("screenshots", AnyView(ScreenshotsPane(model: model { _ in }))),
+                ("recordings", AnyView(RecordingsPane(model: model { _ in }))),
+                ("server", AnyView(ServerPane(model: model { _ in }, token: String(repeating: "x", count: 273)))),
+            ]
+            for (label, pane) in panes {
+                write(view(pane.background(Color(nsColor: .windowBackgroundColor)), appearance: appearance),
+                      to: directory.appending(path: "settings-\(label)-\(suffix).png"))
+            }
         }
     }
 

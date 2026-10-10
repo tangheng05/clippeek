@@ -9,20 +9,29 @@ final class AppWindow: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let title: String
     private let plainTitlebar: Bool
-    private let makeContent: () -> AnyView
+    private let makeController: () -> NSViewController
     var onClose: (() -> Void)?
 
     init(title: String, plainTitlebar: Bool = false, content: @escaping () -> some View) {
         self.title = title
         self.plainTitlebar = plainTitlebar
-        self.makeContent = { AnyView(content()) }
+        self.makeController = { NSHostingController(rootView: AnyView(content())) }
     }
+
+    init(title: String, controller: @escaping () -> NSViewController) {
+        self.title = title
+        self.plainTitlebar = false
+        self.makeController = controller
+    }
+
+    var contentController: NSViewController? { window?.contentViewController }
 
     var isOpen: Bool { window?.isVisible == true }
 
     func show() {
         if window == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: makeContent()))
+            let controller = makeController()
+            let window = NSWindow(contentViewController: controller)
             window.title = title
             window.styleMask = [.titled, .closable]
             if plainTitlebar {
@@ -32,7 +41,8 @@ final class AppWindow: NSObject, NSWindowDelegate {
             }
             window.isReleasedWhenClosed = false
             window.delegate = self
-            fitOnScreen(window)
+            // Tabs size the window per pane themselves.
+            if controller is NSTabViewController { window.toolbarStyle = .preference } else { fitOnScreen(window) }
             window.center()
             self.window = window
         }

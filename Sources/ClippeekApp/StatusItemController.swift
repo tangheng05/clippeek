@@ -11,6 +11,7 @@ final class StatusItemController {
     private var outsideClickMonitor: Any?
     private var lastClosed = Date.distantPast
     private var settings: AppWindow?
+    private var settingsPane: SettingsTabs.Pane = .general
     private var uploading = false
     private var problem = false
     private var showingDone = false
@@ -42,7 +43,7 @@ final class StatusItemController {
 
     /// The Settings window doubles as onboarding.
     func openSettingsIfNeeded() {
-        if ZiplineServer(model.serverText) == nil || model.token == nil || (!model.isCapturing(.screenshot) && !model.isCapturing(.video)) { openSettings() }
+        if ZiplineServer(model.serverText) == nil || model.token == nil || (!model.isCapturing(.screenshot) && !model.isCapturing(.video)) { openSettings(.server) }
     }
 
     private func observe() {
@@ -117,7 +118,7 @@ final class StatusItemController {
         let recordings = menu.addItem(withTitle: "Send Screen Recordings to clippeek", action: #selector(toggleRecordings), keyEquivalent: "")
         recordings.target = self
         recordings.state = model.isCapturing(.video) ? .on : .off
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "Settings…", action: #selector(openSettingsFromMenu), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit clippeek", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         // Setting the menu only for this click keeps a left click opening the popover.
@@ -162,7 +163,7 @@ final class StatusItemController {
     private func setPopoverContent(visible: Bool) {
         guard hosting.rootView.visible != visible else { return }
         hosting.rootView = HistoryView(model: model, visible: visible,
-                                       openSettings: { [weak self] in self?.openSettings() },
+                                       openSettings: { [weak self] in self?.openSettings(.general) },
                                        close: { [weak self] in self?.popover.performClose(nil) },
                                        // Resizing inside SwiftUI's layout pass makes AppKit lay out re-entrantly.
                                        onResize: { [weak self] height in
@@ -183,9 +184,20 @@ final class StatusItemController {
         outsideClickMonitor = nil
     }
 
-    @objc private func openSettings() {
+    @objc private func openSettingsFromMenu() {
+        openSettings(.general)
+    }
+
+    func openSettings(_ pane: SettingsTabs.Pane) {
         popover.performClose(nil)
-        if settings == nil { settings = AppWindow(title: "clippeek Settings") { SettingsView(model: self.model) } }
+        settingsPane = pane
+        if settings == nil {
+            settings = AppWindow(title: "clippeek Settings", controller: { [unowned self] in
+                SettingsTabs.controller(model: model, select: settingsPane)
+            })
+        }
         settings?.show()
+        (settings?.contentController as? NSTabViewController)?.selectedTabViewItemIndex =
+            SettingsTabs.Pane.allCases.firstIndex(of: pane) ?? 0
     }
 }
