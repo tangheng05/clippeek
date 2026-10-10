@@ -27,7 +27,7 @@ enum SettingsTabs {
     }
 
     @MainActor
-    static func controller(model: AppModel, select: Pane) -> NSTabViewController {
+    static func controller(model: AppModel) -> NSTabViewController {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         for pane in Pane.allCases {
@@ -42,7 +42,6 @@ enum SettingsTabs {
             item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
             tabs.addTabViewItem(item)
         }
-        tabs.selectedTabViewItemIndex = Pane.allCases.firstIndex(of: select) ?? 0
         return tabs
     }
 
@@ -72,20 +71,26 @@ private func expiryPicker(_ selection: Binding<Expiry>) -> some View {
 }
 
 @MainActor
-private func capture(_ kind: CaptureKind, _ model: AppModel) -> Binding<Bool> {
+func captureBinding(_ kind: CaptureKind, _ model: AppModel) -> Binding<Bool> {
     Binding(get: { model.isCapturing(kind) }, set: { model.setCapture(kind, $0) })
 }
 
-struct GeneralPane: View {
+struct OpenAtLoginToggle: View {
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
+        Toggle("Open clippeek at login", isOn: $openAtLogin)
+            .onChange(of: openAtLogin) { _, on in
+                if on { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
+                openAtLogin = SMAppService.mainApp.status == .enabled
+            }
+    }
+}
+
+struct GeneralPane: View {
+    var body: some View {
         Form {
-            Toggle("Open clippeek at login", isOn: $openAtLogin)
-                .onChange(of: openAtLogin) { _, on in
-                    if on { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
-                    openAtLogin = SMAppService.mainApp.status == .enabled
-                }
+            OpenAtLoginToggle()
         }
         .pane()
     }
@@ -97,7 +102,7 @@ struct ScreenshotsPane: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Send screenshots to clippeek", isOn: capture(.screenshot, model))
+                Toggle("Send screenshots to clippeek", isOn: captureBinding(.screenshot, model))
                 expiryPicker($model.expiry)
                 Toggle("Copy the link after each upload", isOn: $model.copyLinkAfterUpload)
             } footer: {
@@ -117,7 +122,7 @@ struct RecordingsPane: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Send screen recordings to clippeek", isOn: capture(.video, model))
+                Toggle("Send screen recordings to clippeek", isOn: captureBinding(.video, model))
                 expiryPicker($model.expiryVideo)
                 Toggle("Copy the link when uploaded", isOn: $model.copyLinkVideo)
                 Toggle("Notify when uploaded", isOn: $model.notifyVideo)
@@ -187,10 +192,9 @@ struct ServerPane: View {
 
     private func saveAndTest() {
         guard !testing else { return }
-        model.saveToken(token)
         testing = true
         Task {
-            status = await model.testConnection()
+            status = await model.connect(token: token)
             testing = false
         }
     }

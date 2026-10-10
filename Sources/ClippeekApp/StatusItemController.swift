@@ -11,7 +11,6 @@ final class StatusItemController {
     private var outsideClickMonitor: Any?
     private var lastClosed = Date.distantPast
     private var settings: AppWindow?
-    private var settingsPane: SettingsTabs.Pane = .general
     private var welcome: AppWindow?
     private var uploading = false
     private var problem = false
@@ -212,10 +211,9 @@ final class StatusItemController {
 
     func openSettings(_ pane: SettingsTabs.Pane) {
         popover.performClose(nil)
-        settingsPane = pane
         if settings == nil {
             settings = AppWindow(title: "clippeek Settings", controller: { [unowned self] in
-                SettingsTabs.controller(model: model, select: settingsPane)
+                SettingsTabs.controller(model: model)
             })
         }
         settings?.show()

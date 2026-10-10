@@ -1,6 +1,5 @@
 import AppKit
 import ClippeekCore
-import ServiceManagement
 import SwiftUI
 
 struct WelcomeView: View {
@@ -9,7 +8,6 @@ struct WelcomeView: View {
     @State private var token: String
     @State private var status: ConnectionStatus?
     @State private var connecting = false
-    @State private var openAtLogin = SMAppService.mainApp.status == .enabled
 
     init(model: AppModel, token: String? = nil, done: @escaping () -> Void) {
         self.model = model
@@ -45,18 +43,12 @@ struct WelcomeView: View {
                 }
                 step(2, "Choose what to send") {
                     VStack(alignment: .leading, spacing: 6) {
-                        Toggle("Screenshots", isOn: Binding(get: { model.isCapturing(.screenshot) },
-                                                            set: { model.setCapture(.screenshot, $0) }))
-                        Toggle("Screen recordings", isOn: Binding(get: { model.isCapturing(.video) },
-                                                                  set: { model.setCapture(.video, $0) }))
+                        Toggle("Screenshots", isOn: captureBinding(.screenshot, model))
+                        Toggle("Screen recordings", isOn: captureBinding(.video, model))
                     }
                 }
                 step(3, "Start with your Mac") {
-                    Toggle("Open clippeek at login", isOn: $openAtLogin)
-                        .onChange(of: openAtLogin) { _, on in
-                            if on { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
-                            openAtLogin = SMAppService.mainApp.status == .enabled
-                        }
+                    OpenAtLoginToggle()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -101,10 +93,9 @@ struct WelcomeView: View {
 
     private func connect() {
         guard !connecting, !token.isEmpty else { return }
-        model.saveToken(token)
         connecting = true
         Task {
-            status = await model.testConnection()
+            status = await model.connect(token: token)
             connecting = false
         }
     }

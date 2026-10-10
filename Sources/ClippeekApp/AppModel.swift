@@ -338,6 +338,12 @@ final class AppModel {
         networkReturned()
     }
 
+    /// Saves the token, then checks it against the server.
+    func connect(token: String) async -> ConnectionStatus {
+        saveToken(token)
+        return await testConnection()
+    }
+
     func testConnection() async -> ConnectionStatus {
         guard ZiplineServer(serverText) != nil else { return ConnectionStatus(ok: false, message: "Enter the server address.") }
         guard let client else { return ConnectionStatus(ok: false, message: "Paste your Zipline token.") }
