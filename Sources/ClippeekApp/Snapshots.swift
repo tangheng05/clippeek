@@ -8,6 +8,7 @@ import SwiftUI
 enum Snapshots {
     static func render(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let icon = NSImage(contentsOfFile: "build/AppIcon.icns") { NSApp.applicationIconImage = icon }
         let base = FileManager.default.temporaryDirectory.appending(path: "clippeek-snapshots")
         let folders = Folders(inbox: base.appending(path: "Inbox"), thumbnails: base.appending(path: "Thumbnails"),
                               historyFile: base.appending(path: "history.json"))
@@ -38,6 +39,9 @@ enum Snapshots {
                 write(menuBar(MenuBarIcon.image(center), appearance: appearance),
                       to: directory.appending(path: "menubar-\(label)-\(suffix).png"))
             }
+            let welcome = WelcomeView(model: model { _ in }, token: "") {}
+                .background(Color(nsColor: .windowBackgroundColor))
+            write(view(welcome, appearance: appearance), to: directory.appending(path: "welcome-\(suffix).png"))
             let panes: [(String, AnyView)] = [
                 ("general", AnyView(GeneralPane())),
                 ("screenshots", AnyView(ScreenshotsPane(model: model { _ in }))),

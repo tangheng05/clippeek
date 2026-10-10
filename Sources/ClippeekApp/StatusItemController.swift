@@ -12,6 +12,7 @@ final class StatusItemController {
     private var lastClosed = Date.distantPast
     private var settings: AppWindow?
     private var settingsPane: SettingsTabs.Pane = .general
+    private var welcome: AppWindow?
     private var uploading = false
     private var problem = false
     private var showingDone = false
@@ -41,9 +42,14 @@ final class StatusItemController {
         observe()
     }
 
-    /// The Settings window doubles as onboarding.
-    func openSettingsIfNeeded() {
-        if ZiplineServer(model.serverText) == nil || model.token == nil || (!model.isCapturing(.screenshot) && !model.isCapturing(.video)) { openSettings(.server) }
+    /// First run: a short setup instead of the full Settings.
+    func openWelcomeIfNeeded() {
+        guard ZiplineServer(model.serverText) == nil || model.token == nil else { return }
+        let window = AppWindow(title: "Welcome to clippeek", plainTitlebar: true) { [unowned self] in
+            WelcomeView(model: model) { [weak self] in self?.welcome?.close() }
+        }
+        welcome = window
+        window.show()
     }
 
     private func observe() {

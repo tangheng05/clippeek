@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = statusItem
         Task {
             await model.loadToken()
-            statusItem.openSettingsIfNeeded()
+            statusItem.openWelcomeIfNeeded()
         }
     }
 }
