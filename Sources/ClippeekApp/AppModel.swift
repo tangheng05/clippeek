@@ -105,6 +105,8 @@ final class AppModel {
     /// The clipboard's change count when each capture landed, so a link never replaces something copied since.
     @ObservationIgnored private var clipboardMarks: [String: Int] = [:]
     @ObservationIgnored private var unconfirmed: [String: UploadResult] = [:]
+    @ObservationIgnored private var syncing = false
+    @ObservationIgnored private var lastSync = Date.distantPast
     /// Read once: each Keychain read can ask for the login password after an app update.
     private(set) var token: String?
 
@@ -512,6 +514,29 @@ final class AppModel {
 
     // MARK: History actions
 
+    /// Drops tiles whose file was deleted on Zipline, e.g. in its dashboard. Runs when the history opens,
+    /// at most once a minute, never in the background.
+    func syncWithServer() {
+        guard let client, !syncing, Date.now.timeIntervalSince(lastSync) > 60,
+              let host = ZiplineServer(serverText)?.baseURL.host() else { return }
+        // Items from another server can't be checked here.
+        let items = history.items.filter { $0.url.host() == host }
+        guard !items.isEmpty else { return }
+        syncing = true
+        Task {
+            defer { syncing = false }
+            guard let missing = try? await client.missing(from: items) else { return }
+            lastSync = .now
+            forget(missing)
+        }
+    }
+
+    private func forget(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        for id in ids { if let removed = history.remove(id: id) { removeThumbnail(removed) } }
+        saveHistory()
+    }
+
     /// Expired items are gone from Zipline, so they leave the history too.
     func removeExpired() {
         let expired = history.removeExpired(now: .now)
@@ -520,16 +545,25 @@ final class AppModel {
         saveHistory()
     }
 
+    enum CopyResult { case copied, gone, failed }
+
     @discardableResult
-    func copyImage(_ item: HistoryItem) async -> Bool {
+    func copyImage(_ item: HistoryItem) async -> CopyResult {
         if let data = item.localFile.flatMap({ try? Data(contentsOf: $0) }) {
             Clipboard.put(image: data)
-            return true
+            return .copied
         }
-        guard let (data, response) = try? await session.data(from: item.url),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
-        Clipboard.put(image: data)
-        return true
+        guard let (data, response) = try? await session.data(from: item.url) else { return .failed }
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200:
+            Clipboard.put(image: data)
+            return .copied
+        case 404:
+            forget([item.id])
+            return .gone
+        default:
+            return .failed
+        }
     }
 
     func copyLink(_ item: HistoryItem, format: LinkFormat? = nil) {

@@ -72,6 +72,7 @@ From then on, take screenshots and recordings exactly as you always have.
 - **⌥-click** to copy the link.
 - **Right-click** for Copy Image, Copy Link, Copy as Markdown or HTML, Copy Text (read on your Mac with Apple's Vision), Open in Browser, Show in Finder (for kept copies) and Delete from Zipline.
 - **Arrow keys** move through the grid; **Return** copies.
+- Files you delete in Zipline's dashboard drop out of the history the next time you open it.
 - **Hover** a thumbnail to see how long ago it was taken and, if it expires, how long Zipline keeps it.
 
 Set a **shortcut** in Settings → General to open the history from anywhere.

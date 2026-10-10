@@ -98,6 +98,25 @@ public struct ZiplineClient: Sendable {
         return (response as? HTTPURLResponse)?.statusCode == 200 ? true : nil
     }
 
+    /// Which of these history items Zipline no longer has. Reads newest first only until it has passed the oldest
+    /// one, and judges nothing it didn't cover, so a partial read never removes a file that still exists.
+    public func missing(from items: [HistoryItem], maxPages: Int = 5) async throws -> Set<String> {
+        guard let oldest = items.map(\.created).min() else { return [] }
+        var keys: Set<String> = []
+        var coveredSince: Date?
+        for page in 1...maxPages {
+            let (body, response) = try await session.data(for: Zipline.filesRequest(server: server, token: token, page: page))
+            let files = try Zipline.parseFiles(status: (response as? HTTPURLResponse)?.statusCode ?? 0, data: body)
+            keys.formUnion(files.keys)
+            coveredSince = files.oldest
+            if page >= files.pages { coveredSince = .distantPast; break }
+            if let reached = files.oldest, reached < oldest.addingTimeInterval(-300) { break }
+        }
+        guard let coveredSince else { return [] }
+        // A minute of slack for the clock difference between this Mac and the server.
+        return Set(items.filter { $0.created > coveredSince.addingTimeInterval(60) && !keys.contains($0.id) }.map(\.id))
+    }
+
     public func delete(id: String) async throws {
         let (_, response) = try await session.data(for: Zipline.deleteRequest(server: server, token: token, id: id))
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

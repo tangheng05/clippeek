@@ -233,12 +233,13 @@ struct HistoryView: View {
         }
         copying = item.id
         Task {
-            let ok = await model.copyImage(item)
+            let result = await model.copyImage(item)
             copying = nil
-            if ok {
-                confirm(CopyFeedback(id: item.id, text: "Copied", symbol: "checkmark"))
-            } else {
-                confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"))
+            switch result {
+            case .copied: confirm(CopyFeedback(id: item.id, text: "Copied", symbol: "checkmark"))
+            // The tile is already gone; nothing to show it on.
+            case .gone: break
+            case .failed: confirm(CopyFeedback(id: item.id, text: "Couldn't Copy", symbol: "xmark"))
             }
         }
     }

@@ -38,6 +38,39 @@ final class StubProtocol: URLProtocol {
         #expect(StubProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization") == "secret")
     }
 
+    func item(_ id: String, minutesAgo: Double) -> HistoryItem {
+        HistoryItem(id: id, url: URL(string: "https://zip.example.com/\(id)")!, created: .now.addingTimeInterval(-minutesAgo * 60),
+                    deletesAt: nil, thumbnail: "\(id).png")
+    }
+
+    func page(_ files: [(id: String, name: String, minutesAgo: Double)], pages: Int) -> Data {
+        let formatter = ISO8601DateFormatter()
+        let entries = files.map { #"{"id":"\#($0.id)","name":"\#($0.name)","createdAt":"\#(formatter.string(from: .now.addingTimeInterval(-$0.minutesAgo * 60)))"}"# }
+        return Data(#"{"page":[\#(entries.joined(separator: ","))],"total":0,"pages":\#(pages)}"#.utf8)
+    }
+
+    @Test func findsFilesDeletedOnTheServer() async throws {
+        // One page covers everything: "b" is gone, "c.mov" matches by name like chunked uploads.
+        StubProtocol.handler = { _ in (200, self.page([("a", "a.png", 1), ("x9", "c.mov", 3)], pages: 1)) }
+        let missing = try await client.missing(from: [item("a", minutesAgo: 1), item("b", minutesAgo: 2), item("c.mov", minutesAgo: 3)])
+        #expect(missing == ["b"])
+        #expect(StubProtocol.lastRequest?.url?.query()?.contains("sortBy=createdAt") == true)
+    }
+
+    @Test func judgesOnlyWhatThePagesCovered() async throws {
+        // Two of many pages read; "old" is older than anything listed, so it isn't judged.
+        StubProtocol.requests = []
+        StubProtocol.handler = { request in
+            request.url?.query()?.contains("page=1&") == true
+                ? (200, self.page([("a", "a.png", 1)], pages: 9))
+                : (200, self.page([("z", "z.png", 600)], pages: 9))
+        }
+        let missing = try await client.missing(from: [item("a", minutesAgo: 1), item("gone", minutesAgo: 5),
+                                                       item("old", minutesAgo: 6000)], maxPages: 2)
+        #expect(missing == ["gone"])
+        #expect(StubProtocol.requests.count == 2)
+    }
+
     @Test func deletingAMissingFileSucceeds() async throws {
         StubProtocol.handler = { _ in (404, Data(#"{"error":"E4000: File not found","code":4000,"statusCode":404}"#.utf8)) }
         try await client.delete(id: "gone")

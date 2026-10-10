@@ -73,6 +73,37 @@ public enum Zipline {
         authorized(server.fileURL(id: id), token: token, method: "DELETE")
     }
 
+    /// The user's files, newest first.
+    public static func filesRequest(server: ZiplineServer, token: String, page: Int, perPage: Int = 100) -> URLRequest {
+        var components = URLComponents(url: server.userURL.appending(path: "files"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "perpage", value: String(perPage)),
+                                 URLQueryItem(name: "sortBy", value: "createdAt"), URLQueryItem(name: "order", value: "desc")]
+        return authorized(components.url!, token: token, method: "GET")
+    }
+
+    public struct FilePage: Equatable, Sendable {
+        /// Ids and names, since history keys chunked uploads by name.
+        public var keys: Set<String>
+        public var oldest: Date?
+        public var pages: Int
+    }
+
+    public static func parseFiles(status: Int, data: Data) throws -> FilePage {
+        try check(status, body: data)
+        struct Response: Decodable {
+            struct File: Decodable {
+                let id: String
+                let name: String
+                let createdAt: String
+            }
+            let page: [File]
+            let pages: Int?
+        }
+        guard let response = try? JSONDecoder().decode(Response.self, from: data) else { throw ZiplineError.badResponse }
+        return FilePage(keys: Set(response.page.flatMap { [$0.id, $0.name] }),
+                        oldest: response.page.compactMap { date($0.createdAt) }.min(), pages: response.pages ?? 1)
+    }
+
     /// Used to test a server and token from Settings.
     public static func userRequest(server: ZiplineServer, token: String) -> URLRequest {
         authorized(server.userURL, token: token, method: "GET")

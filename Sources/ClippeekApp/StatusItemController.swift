@@ -188,6 +188,7 @@ final class StatusItemController {
             // action; reopening right away would make it flicker, so treat it as the close.
             guard Date.now.timeIntervalSince(lastClosed) > 0.3 else { return }
             model.removeExpired()
+            model.syncWithServer()
             setPopoverContent(visible: true)
             resizePopover(height: hosting.sizeThatFits(in: NSSize(width: HistoryView.width, height: 10_000)).height)
             // Without this the first click inside the popover only activates the app.
