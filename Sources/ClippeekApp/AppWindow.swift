@@ -26,14 +26,14 @@ final class AppWindow: NSObject, NSWindowDelegate {
 
     var contentController: NSViewController? { window?.contentViewController }
 
-    var isOpen: Bool { window?.isVisible == true }
+    var isOpen: Bool { window.map { $0.isVisible || $0.isMiniaturized } ?? false }
 
     func show() {
         if window == nil {
             let controller = makeController()
             let window = NSWindow(contentViewController: controller)
             window.title = title
-            window.styleMask = [.titled, .closable]
+            window.styleMask = [.titled, .closable, .miniaturizable]
             if plainTitlebar {
                 window.styleMask.insert(.fullSizeContentView)
                 window.titlebarAppearsTransparent = true
@@ -49,6 +49,7 @@ final class AppWindow: NSObject, NSWindowDelegate {
         if !isOpen { Self.openCount += 1 }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
     }

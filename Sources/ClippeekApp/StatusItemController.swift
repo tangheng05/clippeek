@@ -32,6 +32,7 @@ final class StatusItemController {
         item.button?.target = self
         item.button?.action = #selector(clicked)
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        item.button?.setAccessibilityLabel("clippeek")
         NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover,
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -40,6 +41,8 @@ final class StatusItemController {
                 self?.setPopoverContent(visible: false)
             }
         }
+        // Replaces the launch menu so its About and Settings items reach this controller.
+        NSApp.mainMenu = MainMenu.make(target: self)
         observe()
     }
 
@@ -72,10 +75,14 @@ final class StatusItemController {
             lastFinished = finished
             showDone()
         }
-        button.appearsDisabled = !model.isCapturing(.screenshot) && !model.isCapturing(.video)
-        button.toolTip = button.appearsDisabled ? "clippeek (nothing is being sent)" : "clippeek"
-        button.setAccessibilityLabel("clippeek")
-        button.setAccessibilityValue(problem ? "Needs attention" : uploading ? "Uploading" : "Ready")
+        let off = !model.isCapturing(.screenshot) && !model.isCapturing(.video)
+        let waiting = model.pending.values.count { $0 == .waiting }
+        let waitingText = waiting == 1 ? "1 waiting to upload" : "\(waiting) waiting to upload"
+        let toolTip = off ? "clippeek (nothing is being sent)" : waiting > 0 ? "clippeek: \(waitingText)" : "clippeek"
+        let value = problem ? "Needs attention" : uploading ? "Uploading" : waiting > 0 ? waitingText : "Ready"
+        if button.appearsDisabled != off { button.appearsDisabled = off }
+        if button.toolTip != toolTip { button.toolTip = toolTip }
+        if button.accessibilityValue() as? String != value { button.setAccessibilityValue(value) }
         applyIcon()
     }
 
@@ -123,14 +130,16 @@ final class StatusItemController {
         popover.performClose(nil)
         let menu = NSMenu()
         menu.addItem(withTitle: "Open clippeek", action: #selector(toggle), keyEquivalent: "").target = self
+        menu.addItem(.separator())
         let capture = menu.addItem(withTitle: "Send Screenshots to clippeek", action: #selector(toggleCapture), keyEquivalent: "")
         capture.target = self
         capture.state = model.isCapturing(.screenshot) ? .on : .off
         let recordings = menu.addItem(withTitle: "Send Screen Recordings to clippeek", action: #selector(toggleRecordings), keyEquivalent: "")
         recordings.target = self
         recordings.state = model.isCapturing(.video) ? .on : .off
-        menu.addItem(withTitle: "About clippeek", action: #selector(showAbout), keyEquivalent: "").target = self
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettingsFromMenu), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "About clippeek", action: #selector(showAbout), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit clippeek", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         // Setting the menu only for this click keeps a left click opening the popover.
@@ -139,7 +148,7 @@ final class StatusItemController {
         item.menu = nil
     }
 
-    @objc private func showAbout() {
+    @objc func showAbout() {
         NSApp.activate()
         let credits = NSAttributedString(string: "Screenshots and screen recordings, straight to your Zipline.", attributes: [
             .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
@@ -205,7 +214,7 @@ final class StatusItemController {
         outsideClickMonitor = nil
     }
 
-    @objc private func openSettingsFromMenu() {
+    @objc func openSettingsFromMenu() {
         openSettings(.general)
     }
 
