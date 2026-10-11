@@ -1,31 +1,14 @@
 import AppKit
 import ClippeekCore
 
-/// Run by the Homebrew cask before the app is removed. The saved state stays, since `brew upgrade` runs
-/// this too and the next launch points capture back at the inbox.
+/// Run by the Homebrew cask before the app is removed, and on every `brew upgrade`. It only puts the screenshot
+/// settings back; the inbox stays, so the offline queue survives an upgrade and the next launch points capture at it again.
 func restoreCapture() {
     let defaults = UserDefaults.standard
     let state = defaults.data(forKey: "captureState").flatMap { try? JSONDecoder().decode(CaptureState.self, from: $0) }
         ?? defaults.data(forKey: "previousScreenshotSettings").flatMap(CaptureState.migrating(legacy:))
         ?? CaptureState()
     if let change = state.restoreChange() { SystemPreferences.apply(change) }
-
-    let files = FileManager.default
-    let inbox = Folders.standard.inbox
-    let current = SystemPreferences.read(CaptureState.allKeys)
-    for name in (try? files.contentsOfDirectory(atPath: inbox.path)) ?? [] {
-        guard let kind = Inbox.kind(of: name) else { continue }
-        let folder = state.userFolder(for: kind, current: current, inbox: inbox, home: files.homeDirectoryForCurrentUser)
-        let base = (name as NSString).deletingPathExtension
-        let ext = (name as NSString).pathExtension
-        var destination = folder.appending(path: name)
-        var copy = 2
-        while files.fileExists(atPath: destination.path) {
-            destination = folder.appending(path: "\(base) \(copy).\(ext)")
-            copy += 1
-        }
-        try? files.moveItem(at: inbox.appending(path: name), to: destination)
-    }
 }
 
 @MainActor

@@ -68,7 +68,9 @@ import Testing
     @Test func backoffSteps() {
         #expect(Backoff.delay(attempt: 0) == 5)
         #expect(Backoff.delay(attempt: 3) == 600)
-        #expect(Backoff.delay(attempt: 4) == nil)
+        #expect(Backoff.delay(attempt: 4) == 1800)
+        #expect(Backoff.delay(attempt: 40) == 1800)
+        #expect(Backoff.isPastSteps(4) && !Backoff.isPastSteps(3))
     }
 
     /// history.json written before videos existed has no `kind`.

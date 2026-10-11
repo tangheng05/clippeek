@@ -7,7 +7,9 @@ public enum LinkFormat: String, CaseIterable, Codable, Sendable {
     public func text(for url: URL) -> String {
         let link = url.absoluteString
         let name = url.lastPathComponent
-        switch (self, Inbox.kind(of: name)) {
+        // PDFs count as screenshots for uploading, but they don't embed as images.
+        let kind = url.pathExtension.lowercased() == "pdf" ? nil : Inbox.kind(of: name)
+        switch (self, kind) {
         case (.plain, _): return link
         case (.markdown, .screenshot?): return "![](\(link))"
         case (.markdown, _): return "[\(name)](\(link))"

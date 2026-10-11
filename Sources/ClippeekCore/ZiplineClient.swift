@@ -50,10 +50,10 @@ public struct ZiplineClient: Sendable {
         var partialToken: String?
         for range in PartialUpload.ranges(total: total, chunkSize: chunkSize) {
             try handle.seek(toOffset: UInt64(range.lowerBound))
-            let chunk = try handle.read(upToCount: range.count) ?? Data()
-            var request = PartialUpload.request(server: server, token: token, chunk: chunk, range: range, total: total,
-                                                filename: filename, mimeType: Inbox.mimeType(for: filename),
-                                                expiry: expiry, partialToken: partialToken)
+            // The chunk is read straight into the body, so only one 25 MB copy is held while it sends.
+            var request = PartialUpload.request(server: server, token: token, chunk: try handle.read(upToCount: range.count) ?? Data(),
+                                                range: range, total: total, filename: filename,
+                                                mimeType: Inbox.mimeType(for: filename), expiry: expiry, partialToken: partialToken)
             let upload = request.httpBody ?? Data()
             request.httpBody = nil
             let sent = SentBytes { sent, expected in
@@ -86,16 +86,21 @@ public struct ZiplineClient: Sendable {
                 switch PartialUpload.status(of: filename, in: body) {
                 case .complete: return true
                 case .failed: return false
-                case .processing, nil: break
+                case .processing: break
+                // No record, e.g. cleared in Zipline or checked again after a relaunch: the file itself is proof enough.
+                case nil: if await isStored(filename) { return true }
                 }
             }
-            try? await Task.sleep(for: .seconds(delay))
+            try? await Task.sleep(for: .seconds(delay), tolerance: .seconds(delay / 10))
         }
-        // The record of the upload can be gone, e.g. cleared in Zipline; the file itself is proof enough.
+        return await isStored(filename) ? true : nil
+    }
+
+    private func isStored(_ filename: String) async -> Bool {
         var file = URLRequest(url: server.fileURL(id: filename))
         file.setValue(token, forHTTPHeaderField: "Authorization")
         let response = try? await session.data(for: file).1
-        return (response as? HTTPURLResponse)?.statusCode == 200 ? true : nil
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
     /// Which of these history items Zipline no longer has. Reads newest first only until it has passed the oldest

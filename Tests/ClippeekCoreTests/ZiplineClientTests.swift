@@ -172,14 +172,14 @@ final class StubProtocol: URLProtocol {
         #expect(StubProtocol.requests.last?.url?.path() == "/api/user/files/v.mov")
     }
 
-    /// After the last delay, a stored file confirms the upload even if the incomplete list doesn't.
+    /// With no record in the incomplete list, a stored file confirms the upload straight away.
     @Test func storedFileConfirms() async {
         StubProtocol.requests = []
         StubProtocol.handler = { request in
             request.url?.path() == "/api/user/files/v.mov" ? (200, Data(#"{"id":"r","name":"v.mov"}"#.utf8)) : (200, Data("[]".utf8))
         }
         #expect(await client.waitUntilStored(filename: "v.mov", delays: [0, 0]) == true)
-        #expect(StubProtocol.requests.count == 3)
+        #expect(StubProtocol.requests.count == 2)
     }
 
     @Test func refusedFileCarriesReason() async {

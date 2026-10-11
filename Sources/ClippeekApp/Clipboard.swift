@@ -6,10 +6,14 @@ import UniformTypeIdentifiers
 enum Clipboard {
     /// Kept alive while the image is on the clipboard, in case an app asks for TIFF.
     private static var provider: TIFFProvider?
+    /// The change count right after clippeek last copied links, so its own write doesn't count as the user's.
+    private(set) static var lastLinkWrite: Int?
 
     /// PNG for apps like Claude Code; TIFF for older ones, made only if one asks for it.
     /// Other formats also go on as PNG, next to the original; PDFs stay PDFs.
-    static func put(image data: Data) {
+    /// False when the data isn't an image, e.g. an HTML error page; the clipboard is left alone then.
+    @discardableResult
+    static func put(image data: Data) -> Bool {
         let item = NSPasteboardItem()
         if data.starts(with: Data("%PDF".utf8)) {
             item.setData(data, forType: .pdf)
@@ -17,7 +21,7 @@ enum Clipboard {
         } else {
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                   let type = CGImageSourceGetType(source) as String?,
-                  let png = type == UTType.png.identifier ? data : pngData(from: source) else { return }
+                  let png = type == UTType.png.identifier ? data : pngData(from: source) else { return false }
             item.setData(png, forType: .png)
             if type != UTType.png.identifier { item.setData(data, forType: NSPasteboard.PasteboardType(type)) }
             if type == UTType.tiff.identifier {
@@ -31,6 +35,7 @@ enum Clipboard {
         let board = NSPasteboard.general
         board.clearContents()
         board.writeObjects([item])
+        return true
     }
 
     static func put(link: URL) {
@@ -41,6 +46,7 @@ enum Clipboard {
         provider = nil
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        lastLinkWrite = NSPasteboard.general.changeCount
     }
 
     private static func pngData(from source: CGImageSource) -> Data? {

@@ -39,13 +39,14 @@ final class StatusItemController {
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.lastClosed = .now
+                self?.item.button?.highlight(false)
                 self?.stopWatchingOutsideClicks()
                 self?.setPopoverContent(visible: false)
             }
         }
         if let button = item.button, let window = button.window {
             dropTarget = DropTarget(window: window, onDrop: { [weak self] files in self?.model.send(files) },
-                                    onHover: { button.highlight($0) })
+                                    onHover: { [weak self] inside in button.highlight(inside || self?.popover.isShown == true) })
         }
         HotKey.action = { [weak self] in
             guard self?.model.recordingShortcut == false else { return }
@@ -113,11 +114,12 @@ final class StatusItemController {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         riseTask?.cancel()
         riseTask = Task {
-            for step in stride(from: -3.0, through: 0, by: 0.5) {
+            // Whole points stay sharp on 1x screens.
+            for step in [-3.0, -1.5, -0.5, 0] {
                 guard !Task.isCancelled else { return }
                 rise = step
                 applyIcon()
-                try? await Task.sleep(for: .milliseconds(30))
+                try? await Task.sleep(for: .milliseconds(40))
             }
         }
     }
@@ -194,6 +196,8 @@ final class StatusItemController {
             // Without this the first click inside the popover only activates the app.
             NSApp.activate()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            // The pressed look native menu bar items have while open.
+            button.highlight(true)
             popover.contentViewController?.view.window?.makeKey()
             watchOutsideClicks()
         }

@@ -38,12 +38,15 @@ enum MenuBarIcon {
                 mark.line(to: NSPoint(x: 8.1, y: 6.9))
                 mark.line(to: NSPoint(x: 12.4, y: 11.4))
             case .exclamation:
-                mark.move(to: NSPoint(x: 9, y: 12.5))
-                mark.line(to: NSPoint(x: 9, y: 8.4))
-                mark.move(to: NSPoint(x: 9, y: 5.7))
-                mark.line(to: NSPoint(x: 9, y: 5.6))
+                mark.move(to: NSPoint(x: 9, y: 12.8))
+                mark.line(to: NSPoint(x: 9, y: 8.6))
             }
             stroke(mark)
+            if center == .exclamation {
+                // A stroked dot comes out lighter than the other marks; a filled one matches them.
+                NSColor.black.setFill()
+                NSBezierPath(ovalIn: NSRect(x: 7.85, y: 4.6, width: 2.3, height: 2.3)).fill()
+            }
             return true
         }
         image.isTemplate = true

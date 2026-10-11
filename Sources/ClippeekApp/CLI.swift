@@ -135,6 +135,8 @@ enum CLI {
         case ZiplineError.badResponse: "The server didn't answer like Zipline. Check the address in clippeek's Settings."
         case ZiplineError.notStored: "Zipline couldn't finish saving it."
         case let error as CocoaError where error.code == .fileReadNoSuchFile: "No such file."
+        case let error as URLError where error.networkUnavailableReason == .constrained:
+            "Low Data Mode is on, so large files and videos wait. Turn it off and try again."
         default: error.localizedDescription
         }
     }

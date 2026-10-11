@@ -46,36 +46,10 @@ struct HistoryView: View {
         HStack(alignment: .firstTextBaseline) {
             Text("clippeek").font(.headline)
             Spacer()
-            status
+            HeaderStatus(model: model)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-        }
-    }
-
-    @ViewBuilder
-    private var status: some View {
-        if let progress = model.videoProgress ?? model.sendProgress {
-            HStack(spacing: 6) {
-                if progress > 0 {
-                    ProgressView(value: progress).frame(width: 54).controlSize(.mini)
-                    Text("Uploading video \(Int(progress * 100))%")
-                } else {
-                    ProgressView().controlSize(.mini)
-                    Text("Uploading video…")
-                }
-            }
-        } else if model.pending.values.contains(.uploading) {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
-                Text("Uploading…")
-            }
-        } else if waiting > 0 {
-            Text(model.waitingForRetry ? "\(waiting) waiting, will retry" : "\(waiting) waiting")
-        } else if !failed.isEmpty {
-            Text("\(failed.count) not uploaded")
-        } else if !model.history.items.isEmpty {
-            Text("All uploaded")
         }
     }
 
@@ -167,27 +141,30 @@ struct HistoryView: View {
             }
             Text("Click to copy. ⌥-click copies the link.")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder
     private func menu(for item: HistoryItem) -> some View {
-        if item.kind == .screenshot { Button("Copy Image") { activate(item, link: false) } }
-        Button("Copy Link") { copyLink(item, .plain) }
-        Button("Copy as Markdown") { copyLink(item, .markdown) }
-        Button("Copy as HTML") { copyLink(item, .html) }
-        if item.kind == .screenshot { Button("Copy Text") { copyText(item) } }
+        if item.kind == .screenshot { Button("Copy Image", systemImage: "doc.on.doc") { activate(item, link: false) } }
+        Button("Copy Link", systemImage: "link") { copyLink(item, .plain) }
+        Button("Copy as Markdown", systemImage: "text.document") { copyLink(item, .markdown) }
+        Button("Copy as HTML", systemImage: "chevron.left.forwardslash.chevron.right") { copyLink(item, .html) }
+        if item.kind == .screenshot { Button("Copy Text", systemImage: "text.viewfinder") { copyText(item) } }
         Divider()
-        Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
-        if let file = item.localFile, FileManager.default.fileExists(atPath: file.path) {
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        Button("Open in Browser", systemImage: "safari") { NSWorkspace.shared.open(item.url) }
+        if let file = item.localFile {
+            // Checked on click rather than on every render; a moved copy shows its folder instead.
+            Button("Show in Finder", systemImage: "folder") {
+                NSWorkspace.shared.activateFileViewerSelecting([FileManager.default.fileExists(atPath: file.path) ? file : file.deletingLastPathComponent()])
+            }
         }
         if let deletesAt = item.deletesAt {
             Text("Deletes \(deletesAt.formatted(.relative(presentation: .named)))")
         }
         Divider()
-        Button("Delete from Zipline", role: .destructive) { deleting = item }
+        Button("Delete from Zipline", systemImage: "trash", role: .destructive) { deleting = item }
     }
 
     private var footer: some View {
@@ -271,6 +248,7 @@ struct HistoryView: View {
     /// Shows the confirmation briefly; the popover stays open until the user clicks elsewhere.
     private func confirm(_ value: CopyFeedback) {
         withAnimation(.easeOut(duration: 0.15)) { copied = value }
+        AccessibilityNotification.Announcement(value.text).post()
         Task {
             try? await Task.sleep(for: .milliseconds(1200))
             withAnimation(.easeOut(duration: 0.15)) { if copied == value { copied = nil } }
@@ -288,10 +266,6 @@ struct HistoryView: View {
 
     private var deleteDialog: Binding<Bool> {
         Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
-    }
-
-    private var waiting: Int {
-        model.pending.values.filter { $0 == .waiting }.count
     }
 
     /// Shows half of the next row when there's more, so it's clear the grid scrolls.
@@ -358,11 +332,11 @@ private struct HistoryTile: View {
             .overlay { feedback }
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(hovering || selected ? Color.accentColor : Color.primary.opacity(0.12),
-                                  lineWidth: hovering || selected ? 2 : 1)
+                    .strokeBorder(selected ? Color.accentColor : hovering ? Color.primary.opacity(0.35) : Color.primary.opacity(0.12),
+                                  lineWidth: selected ? 2 : hovering ? 1.5 : 1)
             }
             .contentShape(.rect(cornerRadius: 6))
-            .onHover { hovering = $0 }
+            .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovering = inside } }
             .onTapGesture { action(item.kind == .video || NSEvent.modifierFlags.contains(.option)) }
             .help((item.kind == .video ? "Click to copy the link." : "Click to copy, ⌥-click to copy the link.")
                   + (deletes.map { " Deletes \($0)." } ?? ""))
@@ -393,11 +367,48 @@ private struct HistoryTile: View {
         } else if let copied {
             ZStack {
                 RoundedRectangle(cornerRadius: 6).fill(.black.opacity(0.55))
-                Label(copied.text, systemImage: copied.symbol)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                // Stacked, so "Markdown Copied" fits a 92 pt tile.
+                VStack(spacing: 4) {
+                    Image(systemName: copied.symbol).font(.system(size: 15, weight: .semibold))
+                    Text(copied.text).font(.caption.weight(.semibold)).multilineTextAlignment(.center)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 4)
             }
             .transition(.opacity)
+        }
+    }
+}
+
+/// Its own view, so upload progress re-renders only this line, not the grid.
+private struct HeaderStatus: View {
+    let model: AppModel
+
+    var body: some View {
+        let waiting = model.pending.values.filter { $0 == .waiting }.count
+        let failed = model.pending.values.filter { if case .failed = $0 { true } else { false } }.count
+        if let progress = model.videoProgress ?? model.sendProgress {
+            let what = model.videoProgress != nil ? "video" : "file"
+            HStack(spacing: 6) {
+                if progress > 0 {
+                    ProgressView(value: progress).frame(width: 54).controlSize(.mini)
+                    Text("Uploading \(what) \(Int(progress * 100))%")
+                } else {
+                    ProgressView().controlSize(.mini)
+                    Text("Uploading \(what)…")
+                }
+            }
+        } else if model.pending.values.contains(.uploading) || model.sending > 0 {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Uploading…")
+            }
+        } else if waiting > 0 {
+            Text(model.waitingForRetry ? "\(waiting) waiting, will retry" : "\(waiting) waiting")
+        } else if failed > 0 {
+            Text("\(failed) not uploaded")
+        } else if !model.history.items.isEmpty {
+            Text("All uploaded")
         }
     }
 }
@@ -410,7 +421,7 @@ private struct Notice<Action: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(tint)
+            Image(systemName: symbol).foregroundStyle(tint).frame(width: 18)
             Text(text)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
@@ -426,10 +437,16 @@ private struct Notice<Action: View>: View {
 @MainActor
 private enum ThumbnailCache {
     static let cache = NSCache<NSURL, NSImage>()
+    /// Thumbnails that couldn't be made, so they aren't looked for on every render.
+    static var missing: Set<URL> = []
 
     static func image(at url: URL) -> NSImage? {
         if let image = cache.object(forKey: url as NSURL) { return image }
-        guard let image = NSImage(contentsOf: url) else { return nil }
+        guard !missing.contains(url) else { return nil }
+        guard let image = NSImage(contentsOf: url) else {
+            missing.insert(url)
+            return nil
+        }
         cache.setObject(image, forKey: url as NSURL)
         return image
     }

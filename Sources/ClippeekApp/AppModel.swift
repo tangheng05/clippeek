@@ -204,7 +204,7 @@ final class AppModel {
         }
         for name in unconfirmed.keys where !names.contains(name) { setUnconfirmed(name, nil) }
         // Past the last backoff step, a new capture gets one fresh attempt.
-        if added, waitingForRetry, Backoff.delay(attempt: attempt) == nil { waitingForRetry = false }
+        if added, waitingForRetry, Backoff.isPastSteps(attempt) { waitingForRetry = false }
         uploadNext()
     }
 
@@ -351,7 +351,10 @@ final class AppModel {
 
     /// Keeps the recording until Zipline has stored it, so a failure on the server doesn't lose it.
     private func confirm(name: String, file: URL, client: ZiplineClient, result: UploadResult) async {
-        switch await client.waitUntilStored(filename: result.id) {
+        let stored = await client.waitUntilStored(filename: result.id)
+        // Deleted from the inbox meanwhile: nothing left to finish or fail.
+        guard pending[name] != nil else { return }
+        switch stored {
         case true?:
             let thumbnail = await Thumbnail.make(fromVideo: file)
             finish(name: name, file: file, kind: .video, thumbnail: thumbnail, result: result)
@@ -414,7 +417,7 @@ final class AppModel {
 
     /// Moves an uploaded capture to the user's folder when they keep copies; nil when it isn't kept.
     private func keep(_ file: URL, kind: CaptureKind) -> URL? {
-        guard kind == .screenshot ? keepScreenshots : keepVideos else { return nil }
+        guard kind == .screenshot ? keepScreenshots : keepVideos, FileManager.default.fileExists(atPath: file.path) else { return nil }
         // A missing or unwritable folder falls back, so a kept file is never deleted instead.
         for folder in [keepFolder(for: kind), defaultKeepFolder(for: kind), URL.desktopDirectory] {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -468,7 +471,10 @@ final class AppModel {
                 sending -= 1
             }
             // Not over something the user copied while these were uploading.
-            if !links.isEmpty, NSPasteboard.general.changeCount == mark { Clipboard.put(text: links.joined(separator: "\n")) }
+            let current = NSPasteboard.general.changeCount
+            if !links.isEmpty, current == mark || current == Clipboard.lastLinkWrite {
+                Clipboard.put(text: links.joined(separator: "\n"))
+            }
         }
     }
 
@@ -485,10 +491,10 @@ final class AppModel {
         guard !waitingForRetry else { return }
         retry?.cancel()
         waitingForRetry = true
-        guard let delay = Backoff.delay(attempt: attempt) else { return }
+        let delay = Backoff.delay(attempt: attempt)
         attempt += 1
         retry = Task {
-            try? await Task.sleep(for: .seconds(delay))
+            try? await Task.sleep(for: .seconds(delay), tolerance: .seconds(delay / 10))
             guard !Task.isCancelled else { return }
             waitingForRetry = false
             uploadNext()
@@ -523,10 +529,11 @@ final class AppModel {
         let items = history.items.filter { $0.url.host() == host }
         guard !items.isEmpty else { return }
         syncing = true
+        // Set first, so an unreachable server isn't asked again on every open.
+        lastSync = .now
         Task {
             defer { syncing = false }
             guard let missing = try? await client.missing(from: items) else { return }
-            lastSync = .now
             forget(missing)
         }
     }
@@ -549,15 +556,14 @@ final class AppModel {
 
     @discardableResult
     func copyImage(_ item: HistoryItem) async -> CopyResult {
-        if let data = item.localFile.flatMap({ try? Data(contentsOf: $0) }) {
-            Clipboard.put(image: data)
+        if let data = item.localFile.flatMap({ try? Data(contentsOf: $0) }), Clipboard.put(image: data) {
             return .copied
         }
         guard let (data, response) = try? await session.data(from: item.url) else { return .failed }
         switch (response as? HTTPURLResponse)?.statusCode {
         case 200:
-            Clipboard.put(image: data)
-            return .copied
+            // A proxy's HTML page also answers 200; only a real image counts.
+            return Clipboard.put(image: data) ? .copied : .failed
         case 404:
             forget([item.id])
             return .gone
@@ -586,7 +592,15 @@ final class AppModel {
     }
 
     func deleteFromServer(_ item: HistoryItem) async {
-        guard let client else { return }
+        guard let client else {
+            issue = "Connect your Zipline server in Settings first."
+            return
+        }
+        // Otherwise the current server would answer "not found" and the tile would vanish while the file stays.
+        guard item.url.host() == ZiplineServer(serverText)?.baseURL.host() else {
+            issue = "That file is on a different Zipline server than the one in Settings."
+            return
+        }
         do {
             try await client.delete(id: item.id)
             if let removed = history.remove(id: item.id) { removeThumbnail(removed) }

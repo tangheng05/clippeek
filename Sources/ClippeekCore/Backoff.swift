@@ -1,9 +1,15 @@
 public enum Backoff {
     private static let steps: [Double] = [5, 30, 120, 600]
+    /// After the steps, a rare retry so a server that comes back is noticed without a network change.
+    public static let slowest: Double = 1800
 
-    /// Seconds before retry `attempt` (from 0). Nil means wait for the next network change or capture.
-    public static func delay(attempt: Int) -> Double? {
-        attempt < steps.count ? steps[attempt] : nil
+    /// Seconds before retry `attempt` (from 0).
+    public static func delay(attempt: Int) -> Double {
+        attempt < steps.count ? steps[attempt] : slowest
+    }
+
+    public static func isPastSteps(_ attempt: Int) -> Bool {
+        attempt >= steps.count
     }
 }
 
