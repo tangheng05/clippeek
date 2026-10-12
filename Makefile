@@ -2,6 +2,8 @@ APP := build/Clippeek.app
 ICON := build/AppIcon.icns
 BUILD := swift build -c release --arch arm64 --arch x86_64
 BIN = $(shell $(BUILD) --show-bin-path)
+# A stable certificate keeps the Keychain's "Always Allow" across updates; "-" signs ad hoc.
+SIGN_IDENTITY ?= -
 
 .PHONY: app install release snapshots test clean
 
@@ -12,7 +14,7 @@ app: $(ICON)
 	cp $(BIN)/ClippeekApp $(APP)/Contents/MacOS/
 	cp Resources/Info.plist $(APP)/Contents/
 	cp $(ICON) $(APP)/Contents/Resources/
-	codesign --force --sign - $(APP)
+	codesign --force --sign "$(SIGN_IDENTITY)" $(APP)
 
 $(ICON): scripts/make-icon.swift
 	rm -rf build/AppIcon.iconset

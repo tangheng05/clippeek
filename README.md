@@ -134,6 +134,8 @@ Bump `CFBundleShortVersionString` in `Resources/Info.plist`, commit, then run `s
 
 The cask update needs a `TAP_TOKEN` repository secret: a fine-grained token with **Contents: read and write** on `homebrew-tap`.
 
+Releases are signed with a self-signed certificate so macOS keeps trusting the app's Keychain item across updates (an ad hoc signature changes with every build, and the Keychain asks for the login password again). Make it once in Keychain Access › Certificate Assistant › Create a Certificate: Self-Signed Root, type **Code Signing**, validity about 3650 days. Export it as a `.p12` with a password and add two repository secrets: `SIGNING_CERTIFICATE` (the output of `base64 -i clippeek.p12`) and `SIGNING_CERTIFICATE_PASSWORD`. Keep the `.p12`: a new certificate means everyone is asked for the password once more. Without the secrets, releases are signed ad hoc. To sign a local build the same way, run `make app SIGN_IDENTITY=<certificate name>`.
+
 ## License
 
 MIT
