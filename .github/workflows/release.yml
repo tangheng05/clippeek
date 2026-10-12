@@ -21,8 +21,34 @@ jobs:
           [ "${tag%%-*}" = "$version" ] || { echo "Tag $tag doesn't match Info.plist $version" >&2; exit 1; }
       - name: Test
         run: swift test
+      - name: Signing certificate
+        env:
+          P12: ${{ secrets.SIGNING_CERTIFICATE }}
+          P12_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then
+              echo "::warning::SIGNING_CERTIFICATE isn't set, so the app is signed ad hoc and the Keychain will ask for the password again."
+              exit 0
+          fi
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          pass=$(uuidgen)
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$pass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$pass" "$kc"
+          security import "$RUNNER_TEMP/signing.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pass" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          # Self-signed, so it's listed as untrusted; codesign still uses it by hash.
+          identity=$(security find-identity -p codesigning "$kc" | awk '/\)/ { print $2; exit }')
+          [ -n "$identity" ] || { echo "No code signing identity in SIGNING_CERTIFICATE" >&2; exit 1; }
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
       - name: Build
-        run: make release
+        run: |
+          make release
+          codesign --verify --strict build/Clippeek.app
+          codesign -d -r- build/Clippeek.app
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
